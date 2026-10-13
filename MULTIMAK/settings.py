@@ -56,8 +56,12 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'MULTIMAK.urls'
-CORS_ALLOW_ALL_ORIGINS = True
 
+CORS_ALLOWED_ORIGINS = [
+    "https://multimak.vercel.app",  # Tu URL de producción en Vercel
+    "http://localhost:5173",         # Vite en desarrollo local
+    "http://127.0.0.1:5173",
+]
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
