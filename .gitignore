@@ -1,0 +1,18 @@
+# Entorno virtual
+venv/
+env/
+ENV/
+
+# Archivos de Python
+*.pyc
+__pycache__/
+
+# Variables de entorno y configuraciones sensibles
+.env
+
+# Base de datos local (si usaras SQLite, aunque uses Neon es bueno dejarlo)
+db.sqlite3
+
+# Archivos de VS Code o IDEs
+.vscode/
+.idea/
