@@ -1,109 +1,48 @@
-from rest_framework import viewsets
-from django.contrib.auth import authenticate
-from rest_framework.views import APIView
+from rest_framework import status, viewsets
+from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.permissions import AllowAny
-from .models import Cliente, Operador, Maquinaria, Contrato, Report, Gasto
-from .serializers import (
-    ClienteSerializer,
-    OperadorSerializer,
-    MaquinariaSerializer,
-    ContratoSerializer,
-    ReportSerializer,
-    GastoSerializer,
-)
+from django.apps import apps
+from .models import Maquinaria, Operador, Report, Usuarios
+from .serializers import MaquinariaSerializer, OperadorSerializer, ReportSerializer
 
-class ClienteViewSet(viewsets.ModelViewSet):
-    queryset = Cliente.objects.all()
-    serializer_class = ClienteSerializer
+class ReportViewSet(viewsets.ModelViewSet):
+    queryset = Report.objects.all()
+    serializer_class = ReportSerializer
 
-class OperadorViewSet(viewsets.ModelViewSet):
-    queryset = Operador.objects.all()
-    serializer_class = OperadorSerializer
+    def perform_create(self, serializer):
+        # 1. Guarda el reporte de turno en la base de datos
+        reporte = serializer.save()
+
+        # 2. Actualiza automáticamente el horómetro de la maquinaria
+        try:
+            # Obtiene el ID de la máquina si es ForeignKey o campo numérico
+            maquina_id = reporte.id_maquina_id if hasattr(reporte, 'id_maquina_id') else getattr(reporte, 'id_maquina', None)
+            
+            if hasattr(maquina_id, 'id_maquina'):
+                maquina_id = maquina_id.id_maquina
+
+            Maquinaria.objects.filter(id_maquina=maquina_id).update(horometro_actual=reporte.horometro_final)
+            print(f">>> Maquinaria #{maquina_id} actualizada con éxito a {reporte.horometro_final} hrs.")
+        except Exception as e:
+            print(f">>> Error al actualizar horómetro de la maquinaria: {e}")
 
 class MaquinariaViewSet(viewsets.ModelViewSet):
     queryset = Maquinaria.objects.all()
     serializer_class = MaquinariaSerializer
 
-class ContratoViewSet(viewsets.ModelViewSet):
-    queryset = Contrato.objects.all()
-    serializer_class = ContratoSerializer
+@api_view(['POST'])
+def login_operador(request):
+    rut = request.data.get('rut')
+    contraseña = request.data.get('contraseña')
 
-from rest_framework import viewsets
-from .models import Report, Maquinaria
-from .serializers import ReportSerializer
-
-class ReportViewSet(viewsets.ModelViewSet):
-    queryset = Report.objects.all().order_by('-fecha', '-id')
-    serializer_class = ReportSerializer
-
-    def perform_create(self, serializer):
-        # Guardamos el reporte ingresado por el operador
-        reporte = serializer.save()
-
-        # HU02 / RS003: Actualización automática de horómetro y estado de la máquina
-        try:
-            # Obtenemos la maquinaria vinculada (vía contrato o directa)
-            maquina = None
-            if hasattr(reporte, 'contrato') and reporte.contrato:
-                maquina = reporte.contrato.maquinaria
-            elif hasattr(reporte, 'maquinaria') and reporte.maquinaria:
-                maquina = reporte.maquinaria
-
-            if maquina:
-                # El horómetro acumulado se actualiza al horómetro final del turno
-                nuevo_horometro = float(reporte.horometro_final)
-                maquina.horometro_acumulado = nuevo_horometro
-
-                # Regla de negocio HU02 / RS003:
-                # Si alcanza o supera el ciclo de 500 hrs o 1000 hrs, pasa automáticamente a "Requiere Mantención"
-                ciclo_500 = nuevo_horometro % 500
-                if ciclo_500 >= 499 or nuevo_horometro >= 500:
-                    maquina.estado = "Requiere Mantención"
-                else:
-                    maquina.estado = "Operativa"
-
-                maquina.save()
-        except Exception as e:
-            print(f"Error al actualizar horómetro automático: {e}")
-
-class GastoViewSet(viewsets.ModelViewSet):
-    queryset = Gasto.objects.all()
-    serializer_class = GastoSerializer
-
-class LoginView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        username = request.data.get('username')
-        password = request.data.get('password')
-
-        if not username or not password:
-            return Response(
-                {'error': 'Debe ingresar usuario y contraseña'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        usuario = authenticate(username=username, password=password)
-
-        if usuario is not None:
-            # Determinamos el rol según los grupos o si es superusuario
-            if usuario.is_superuser or usuario.groups.filter(name='Administrador').exists():
-                rol = 'admin'
-            elif usuario.groups.filter(name='Operador').exists():
-                rol = 'operador'
-            else:
-                rol = 'operador'  # Rol por defecto
-
-            return Response({
-                'mensaje': 'Inicio de sesión exitoso',
-                'username': usuario.username,
-                'nombre_completo': f"{usuario.first_name} {usuario.last_name}".strip() or usuario.username,
-                'rol': rol
-            }, status=status.HTTP_200_OK)
-        else:
-            return Response(
-                {'error': 'Credenciales inválidas'},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
+    try:
+        usuario = Usuarios.objects.get(rut=rut, contraseña=contraseña, id_rol__rol__iexact='Operador')
+        operador = Operador.objects.get(id_usuario=usuario)
+        return Response({
+            'mensaje': 'Acceso concedido',
+            'id_operador': operador.id_operador,
+            'nombre': f"{usuario.nombre} {usuario.apellido}",
+            'tipo_licencia': operador.TipoLicencia
+        }, status=status.HTTP_200_OK)
+    except (Usuarios.DoesNotExist, Operador.DoesNotExist):
+        return Response({'error': 'Credenciales invalidas o no es operador'}, status=status.HTTP_401_UNAUTHORIZED)

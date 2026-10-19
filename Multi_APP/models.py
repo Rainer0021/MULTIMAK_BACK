@@ -1,88 +1,173 @@
 from django.db import models
 
-class Cliente(models.Model):
-    rut = models.CharField(max_length=12, primary_key=True)
-    razon_social = models.CharField(max_length=150)
-    giro = models.CharField(max_length=150)
-    direccion = models.CharField(max_length=200)
-    contacto = models.CharField(max_length=100)
+class Rol(models.Model):
+    id_rol = models.AutoField(primary_key=True)
+    rol = models.CharField(max_length=40)
+
+    class Meta:
+        db_table = 'Rol'
 
     def __str__(self):
-        return self.razon_social
+        return self.rol
 
+class Usuarios(models.Model):
+    id_usuario = models.AutoField(primary_key=True)
+    id_rol = models.ForeignKey(Rol, on_delete=models.RESTRICT, db_column='id_rol')
+    rut = models.CharField(max_length=255)
+    nombre = models.CharField(max_length=255)
+    apellido = models.CharField(max_length=255)
+    contraseña = models.CharField(max_length=255)
+    estado_login = models.BooleanField(default=False)
 
-class Operador(models.Model):
-    rut = models.CharField(max_length=12, primary_key=True)
-    nombre = models.CharField(max_length=100)
-    apellido = models.CharField(max_length=100)
-    tipo_licencia = models.CharField(max_length=50)
+    class Meta:
+        db_table = 'Usuarios'
 
     def __str__(self):
         return f"{self.nombre} {self.apellido}"
 
+class Operador(models.Model):
+    id_operador = models.AutoField(primary_key=True)
+    id_usuario = models.ForeignKey(Usuarios, on_delete=models.CASCADE, db_column='id_usuario')
+    TipoLicencia = models.CharField(max_length=255)
+
+    class Meta:
+        db_table = 'Operador'
+
+    def __str__(self):
+        return f"Operador: {self.id_usuario.nombre}"
+
+class Cliente(models.Model):
+    id_cliente = models.AutoField(primary_key=True)
+    rut = models.CharField(max_length=255)
+    razon_social = models.CharField(max_length=255)
+    giro = models.CharField(max_length=255)
+    direccion = models.CharField(max_length=255)
+    contacto = models.CharField(max_length=255)
+
+    class Meta:
+        db_table = 'Cliente'
+
+    def __str__(self):
+        return self.razon_social
 
 class Maquinaria(models.Model):
-    patente = models.CharField(max_length=10, primary_key=True)
-    tipo = models.CharField(max_length=50)
-    marca = models.CharField(max_length=50)
-    modelo = models.CharField(max_length=50)
-    horometro_acumulado = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
-    estado = models.CharField(max_length=50, default="Operativa")
-    
-    # Campo No Estructurado (JSONB nativo en PostgreSQL) - Criterio 2.1.4.9
-    datos_tecnicos_extra = models.JSONField(default=dict, blank=True)
+    id_maquina = models.AutoField(primary_key=True)
+    patente = models.CharField(max_length=8)
+    modelo = models.CharField(max_length=255)
+    tipo = models.CharField(max_length=255)
+    marca = models.CharField(max_length=255)
+    horometro_actual = models.IntegerField(default=0)
+    estado = models.CharField(max_length=255)
+
+    class Meta:
+        db_table = 'Maquinaria'
 
     def __str__(self):
-        return f"{self.patente} - {self.tipo}"
-
+        return f"{self.tipo} {self.marca} - {self.patente}"
 
 class Contrato(models.Model):
-    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="contratos")
-    maquinaria = models.ForeignKey(Maquinaria, on_delete=models.CASCADE, related_name="contratos")
+    id_contrato = models.AutoField(primary_key=True)
+    id_cliente = models.ForeignKey(Cliente, on_delete=models.RESTRICT, db_column='id_cliente')
     fecha_inicio = models.DateField()
-    fecha_termino = models.DateField(null=True, blank=True)
-    tarifa_hora = models.DecimalField(max_digits=10, decimal_places=2)
-    estado = models.CharField(max_length=50, default="Activo")
+    fecha_fin = models.DateField()
+    tarifa_hora = models.IntegerField()
+    estado_contrato = models.CharField(max_length=255)
+
+    class Meta:
+        db_table = 'Contrato'
 
     def __str__(self):
-        return f"Contrato {self.id} - {self.cliente.razon_social} ({self.maquinaria.patente})"
+        return f"Contrato #{self.id_contrato}"
 
+class HES(models.Model):
+    id_hes = models.AutoField(primary_key=True)
+    id_contrato = models.ForeignKey(Contrato, on_delete=models.RESTRICT, db_column='id_contrato')
+    numero_hes = models.CharField(max_length=255)
+    fecha_emision = models.DateField()
+    total_horas_aprobadas = models.IntegerField()
+    estado = models.CharField(max_length=255)
+
+    class Meta:
+        db_table = 'HES'
+
+class Factura(models.Model):
+    id_factura = models.AutoField(primary_key=True)
+    id_hes = models.ForeignKey(HES, on_delete=models.RESTRICT, db_column='id_hes')
+    folio = models.IntegerField()
+    fehca_emision = models.DateField()
+    monto_neto = models.IntegerField()
+    iva = models.IntegerField()
+    monto_total = models.IntegerField()
+    estado_pago = models.CharField(max_length=255)
+
+    class Meta:
+        db_table = 'Factura'
+
+class Mantenimiento(models.Model):
+    id_mantenimiento = models.AutoField(primary_key=True)
+    id_maquina = models.ForeignKey(Maquinaria, on_delete=models.CASCADE, db_column='id_maquina')
+    fecha_mantencion = models.DateField()
+    tipo_mantencion = models.CharField(max_length=255)
+    horometro_mantencion = models.IntegerField()
+    estado = models.CharField(max_length=255)
+    descripcion_mantenimiento = models.CharField(max_length=255)
+
+    class Meta:
+        db_table = 'Mantenimiento'
 
 class Report(models.Model):
-    contrato = models.ForeignKey(Contrato, on_delete=models.CASCADE, related_name="reportes")
-    operador = models.ForeignKey(Operador, on_delete=models.CASCADE, related_name="reportes")
+    id_report = models.AutoField(primary_key=True)
+    id_contrato = models.ForeignKey(Contrato, on_delete=models.RESTRICT, db_column='id_contrato')
+    id_operador = models.ForeignKey(Operador, on_delete=models.RESTRICT, db_column='id_operador')
+    id_maquina = models.ForeignKey(Maquinaria, on_delete=models.RESTRICT, db_column='id_maquina')
+    id_hes = models.ForeignKey(HES, on_delete=models.SET_NULL, null=True, blank=True, db_column='id_hes')
     fecha = models.DateField()
     hora_entrada = models.TimeField()
     hora_salida = models.TimeField()
-    horometro_inicio = models.DecimalField(max_digits=10, decimal_places=2)
-    horometro_final = models.DecimalField(max_digits=10, decimal_places=2)
-    horas_trabajadas = models.DecimalField(max_digits=6, decimal_places=2, default=0.0)
-    combustible_litros = models.DecimalField(max_digits=6, decimal_places=2, default=0.0)
+    horometro_inicial = models.FloatField()
+    horometro_final = models.FloatField()
+    horas_trabajadas = models.IntegerField()
     firmado = models.BooleanField(default=False)
-    
-    # Metadatos de auditoría No Estructurados - Criterio 2.1.4.9 y RS011
-    metadata_auditoria = models.JSONField(default=dict, blank=True)
+    combustible = models.FloatField(default=0.0)
 
-    def save(self, *args, **kwargs):
-        # Calcula automáticamente las horas trabajadas
-        if self.horometro_final and self.horometro_inicio:
-            self.horas_trabajadas = self.horometro_final - self.horometro_inicio
-        super().save(*args, **kwargs)
-        
-        # Actualiza el horómetro acumulado de la máquina asignada al contrato
-        if self.contrato and self.contrato.maquinaria:
-            self.contrato.maquinaria.horometro_acumulado = self.horometro_final
-            self.contrato.maquinaria.save()
-
-    def __str__(self):
-        return f"Report {self.id} - {self.fecha} ({self.operador})"
-
+    class Meta:
+        db_table = 'Report'
 
 class Gasto(models.Model):
-    maquinaria = models.ForeignKey(Maquinaria, on_delete=models.CASCADE, related_name="gastos")
-    tipo_gasto = models.CharField(max_length=50) # Ej: Combustible, Repuesto, Viático
-    monto = models.DecimalField(max_digits=10, decimal_places=2)
+    id_gasto = models.AutoField(primary_key=True)
+    id_maquina = models.ForeignKey(Maquinaria, on_delete=models.SET_NULL, null=True, blank=True, db_column='id_maquina')
+    id_mantenimiento = models.ForeignKey(Mantenimiento, on_delete=models.SET_NULL, null=True, blank=True, db_column='id_mantenimiento')
+    id_contrato = models.ForeignKey(Contrato, on_delete=models.SET_NULL, null=True, blank=True, db_column='id_contrato')
+    id_usuario = models.ForeignKey(Usuarios, on_delete=models.RESTRICT, db_column='id_usuario')
+    categoria_gasto = models.CharField(max_length=255)
+    monto = models.IntegerField()
     fecha = models.DateField()
+    numero_comprobante = models.CharField(max_length=255)
+    url_comprobante = models.CharField(max_length=255)
 
-    def __str__(self):
-        return f"Gasto {self.tipo_gasto} - ${self.monto} ({self.maquinaria.patente})"
+    class Meta:
+        db_table = 'Gasto'
+
+class Doc_Maquinaria(models.Model):
+    id_doc_maquina = models.AutoField(primary_key=True)
+    id_maquina = models.ForeignKey(Maquinaria, on_delete=models.CASCADE, db_column='id_maquina')
+    tipo_documento = models.CharField(max_length=255)
+    numero_documento = models.CharField(max_length=255)
+    fecha_emision = models.DateField()
+    fecha_vencimiento = models.DateField()
+    url_archivo = models.CharField(max_length=255)
+    estado = models.CharField(max_length=255)
+
+    class Meta:
+        db_table = 'Doc_Maquinaria'
+
+class Doc_empresa(models.Model):
+    id_doc_empresa = models.AutoField(primary_key=True)
+    id_usuario = models.ForeignKey(Usuarios, on_delete=models.CASCADE, db_column='id_usuario')
+    nombre_documento = models.CharField(max_length=255)
+    fecha_emision = models.DateField()
+    fecha_vencimiento = models.DateField(null=True, blank=True)
+    url_archivo = models.CharField(max_length=255)
+
+    class Meta:
+        db_table = 'Doc_empresa'
