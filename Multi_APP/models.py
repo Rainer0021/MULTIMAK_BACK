@@ -29,12 +29,13 @@ class Operador(models.Model):
     id_operador = models.AutoField(primary_key=True)
     id_usuario = models.ForeignKey(Usuarios, on_delete=models.CASCADE, db_column='id_usuario')
     TipoLicencia = models.CharField(max_length=255)
+    fecha_vencimiento_licencia = models.DateField(null=True, blank=True)
 
     class Meta:
         db_table = 'Operador'
 
     def __str__(self):
-        return f"Operador: {self.id_usuario.nombre}"
+        return f"Operador: {self.id_usuario.nombre} {self.id_usuario.apellido}"
 
 class Cliente(models.Model):
     id_cliente = models.AutoField(primary_key=True)
@@ -56,14 +57,14 @@ class Maquinaria(models.Model):
     modelo = models.CharField(max_length=255)
     tipo = models.CharField(max_length=255)
     marca = models.CharField(max_length=255)
-    horometro_actual = models.IntegerField(default=0)
+    horometro_actual = models.FloatField(default=0.0)
     estado = models.CharField(max_length=255)
 
     class Meta:
         db_table = 'Maquinaria'
 
     def __str__(self):
-        return f"{self.tipo} {self.marca} - {self.patente}"
+        return f"{self.tipo} {self.marca} ({self.patente})"
 
 class Contrato(models.Model):
     id_contrato = models.AutoField(primary_key=True)
@@ -77,7 +78,7 @@ class Contrato(models.Model):
         db_table = 'Contrato'
 
     def __str__(self):
-        return f"Contrato #{self.id_contrato}"
+        return f"Contrato #{self.id_contrato} - {self.id_cliente.razon_social}"
 
 class HES(models.Model):
     id_hes = models.AutoField(primary_key=True)
@@ -90,11 +91,14 @@ class HES(models.Model):
     class Meta:
         db_table = 'HES'
 
+    def __str__(self):
+        return f"HES #{self.numero_hes}"
+
 class Factura(models.Model):
     id_factura = models.AutoField(primary_key=True)
     id_hes = models.ForeignKey(HES, on_delete=models.RESTRICT, db_column='id_hes')
     folio = models.IntegerField()
-    fehca_emision = models.DateField()
+    fecha_emision = models.DateField()
     monto_neto = models.IntegerField()
     iva = models.IntegerField()
     monto_total = models.IntegerField()
@@ -102,6 +106,9 @@ class Factura(models.Model):
 
     class Meta:
         db_table = 'Factura'
+
+    def __str__(self):
+        return f"Factura #{self.folio}"
 
 class Mantenimiento(models.Model):
     id_mantenimiento = models.AutoField(primary_key=True)
@@ -115,9 +122,12 @@ class Mantenimiento(models.Model):
     class Meta:
         db_table = 'Mantenimiento'
 
+    def __str__(self):
+        return f"Mantenimiento #{self.id_mantenimiento} - Máquina {self.id_maquina.patente}"
+
 class Report(models.Model):
     id_report = models.AutoField(primary_key=True)
-    id_contrato = models.ForeignKey(Contrato, on_delete=models.RESTRICT, db_column='id_contrato')
+    id_contrato = models.ForeignKey(Contrato, on_delete=models.SET_NULL, null=True, blank=True, db_column='id_contrato')
     id_operador = models.ForeignKey(Operador, on_delete=models.RESTRICT, db_column='id_operador')
     id_maquina = models.ForeignKey(Maquinaria, on_delete=models.RESTRICT, db_column='id_maquina')
     id_hes = models.ForeignKey(HES, on_delete=models.SET_NULL, null=True, blank=True, db_column='id_hes')
@@ -128,10 +138,13 @@ class Report(models.Model):
     horometro_final = models.FloatField()
     horas_trabajadas = models.IntegerField()
     firmado = models.BooleanField(default=False)
-    combustible = models.FloatField(default=0.0)
+    combustible_litros = models.FloatField(default=0.0)
 
     class Meta:
         db_table = 'Report'
+
+    def __str__(self):
+        return f"Reporte #{self.id_report} - {self.id_maquina.patente}"
 
 class Gasto(models.Model):
     id_gasto = models.AutoField(primary_key=True)
@@ -147,6 +160,9 @@ class Gasto(models.Model):
 
     class Meta:
         db_table = 'Gasto'
+
+    def __str__(self):
+        return f"Gasto #{self.id_gasto} - ${self.monto}"
 
 class Doc_Maquinaria(models.Model):
     id_doc_maquina = models.AutoField(primary_key=True)

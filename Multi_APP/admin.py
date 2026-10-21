@@ -37,9 +37,9 @@ class ReportAdmin(admin.ModelAdmin):
 class HESAdmin(admin.ModelAdmin):
     list_display = ('id_hes', 'numero_hes', 'id_contrato', 'fecha_emision', 'estado')
 
-@admin.register(Factura)
+# Busca este bloque y déjalo con fecha_emision bien escrito:
 class FacturaAdmin(admin.ModelAdmin):
-    list_display = ('id_factura', 'folio', 'fehca_emision', 'monto_total', 'estado_pago')
+    list_display = ('id_factura', 'folio', 'fecha_emision', 'monto_total', 'estado_pago')
 
 @admin.register(Mantenimiento)
 class MantenimientoAdmin(admin.ModelAdmin):
