@@ -1,5 +1,6 @@
 from django.db import models
 
+
 class Rol(models.Model):
     id_rol = models.AutoField(primary_key=True)
     rol = models.CharField(max_length=40)
@@ -9,6 +10,7 @@ class Rol(models.Model):
 
     def __str__(self):
         return self.rol
+
 
 class Usuarios(models.Model):
     id_usuario = models.AutoField(primary_key=True)
@@ -25,6 +27,7 @@ class Usuarios(models.Model):
     def __str__(self):
         return f"{self.nombre} {self.apellido}"
 
+
 class Operador(models.Model):
     id_operador = models.AutoField(primary_key=True)
     id_usuario = models.ForeignKey(Usuarios, on_delete=models.CASCADE, db_column='id_usuario')
@@ -36,6 +39,7 @@ class Operador(models.Model):
 
     def __str__(self):
         return f"Operador: {self.id_usuario.nombre} {self.id_usuario.apellido}"
+
 
 class Cliente(models.Model):
     id_cliente = models.AutoField(primary_key=True)
@@ -50,6 +54,7 @@ class Cliente(models.Model):
 
     def __str__(self):
         return self.razon_social
+
 
 class Maquinaria(models.Model):
     id_maquina = models.AutoField(primary_key=True)
@@ -66,6 +71,7 @@ class Maquinaria(models.Model):
     def __str__(self):
         return f"{self.tipo} {self.marca} ({self.patente})"
 
+
 class Contrato(models.Model):
     id_contrato = models.AutoField(primary_key=True)
     id_cliente = models.ForeignKey(Cliente, on_delete=models.RESTRICT, db_column='id_cliente')
@@ -80,6 +86,7 @@ class Contrato(models.Model):
     def __str__(self):
         return f"Contrato #{self.id_contrato} - {self.id_cliente.razon_social}"
 
+
 class HES(models.Model):
     id_hes = models.AutoField(primary_key=True)
     id_contrato = models.ForeignKey(Contrato, on_delete=models.RESTRICT, db_column='id_contrato')
@@ -93,6 +100,7 @@ class HES(models.Model):
 
     def __str__(self):
         return f"HES #{self.numero_hes}"
+
 
 class Factura(models.Model):
     id_factura = models.AutoField(primary_key=True)
@@ -110,6 +118,7 @@ class Factura(models.Model):
     def __str__(self):
         return f"Factura #{self.folio}"
 
+
 class Mantenimiento(models.Model):
     id_mantenimiento = models.AutoField(primary_key=True)
     id_maquina = models.ForeignKey(Maquinaria, on_delete=models.CASCADE, db_column='id_maquina')
@@ -124,6 +133,7 @@ class Mantenimiento(models.Model):
 
     def __str__(self):
         return f"Mantenimiento #{self.id_mantenimiento} - Máquina {self.id_maquina.patente}"
+
 
 class Report(models.Model):
     id_report = models.AutoField(primary_key=True)
@@ -146,6 +156,7 @@ class Report(models.Model):
     def __str__(self):
         return f"Reporte #{self.id_report} - {self.id_maquina.patente}"
 
+
 class Gasto(models.Model):
     id_gasto = models.AutoField(primary_key=True)
     id_maquina = models.ForeignKey(Maquinaria, on_delete=models.SET_NULL, null=True, blank=True, db_column='id_maquina')
@@ -164,6 +175,7 @@ class Gasto(models.Model):
     def __str__(self):
         return f"Gasto #{self.id_gasto} - ${self.monto}"
 
+
 class Doc_Maquinaria(models.Model):
     id_doc_maquina = models.AutoField(primary_key=True)
     id_maquina = models.ForeignKey(Maquinaria, on_delete=models.CASCADE, db_column='id_maquina')
@@ -176,6 +188,7 @@ class Doc_Maquinaria(models.Model):
 
     class Meta:
         db_table = 'Doc_Maquinaria'
+
 
 class Doc_empresa(models.Model):
     id_doc_empresa = models.AutoField(primary_key=True)

@@ -2,8 +2,8 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.apps import apps
-from .models import Maquinaria, Operador, Report, Usuarios
-from .serializers import MaquinariaSerializer, OperadorSerializer, ReportSerializer
+from .models import Maquinaria, Operador, Report, Usuarios, Operador, Gasto
+from .serializers import MaquinariaSerializer, OperadorSerializer, ReportSerializer,OperadorSerializer,GastoSerializer
 
 class ReportViewSet(viewsets.ModelViewSet):
     queryset = Report.objects.all()
@@ -46,3 +46,12 @@ def login_operador(request):
         }, status=status.HTTP_200_OK)
     except (Usuarios.DoesNotExist, Operador.DoesNotExist):
         return Response({'error': 'Credenciales invalidas o no es operador'}, status=status.HTTP_401_UNAUTHORIZED)
+
+class OperadorViewSet(viewsets.ModelViewSet):
+    queryset = Operador.objects.all().order_by('-id_operador')
+    serializer_class = OperadorSerializer
+
+
+class GastoViewSet(viewsets.ModelViewSet):
+    queryset = Gasto.objects.all().order_by('-fecha')
+    serializer_class = GastoSerializer
