@@ -1,9 +1,9 @@
 from django.db import models
-
+from django.contrib.auth.hashers import make_password, check_password
 
 class Rol(models.Model):
     id_rol = models.AutoField(primary_key=True)
-    rol = models.CharField(max_length=40)
+    rol = models.CharField(max_length=40)  # 'Operador', 'Administrador', 'Contador'
 
     class Meta:
         db_table = 'Rol'
@@ -15,7 +15,7 @@ class Rol(models.Model):
 class Usuarios(models.Model):
     id_usuario = models.AutoField(primary_key=True)
     id_rol = models.ForeignKey(Rol, on_delete=models.RESTRICT, db_column='id_rol')
-    rut = models.CharField(max_length=255)
+    rut = models.CharField(max_length=255, unique=True)
     nombre = models.CharField(max_length=255)
     apellido = models.CharField(max_length=255)
     contraseña = models.CharField(max_length=255)
@@ -24,26 +24,32 @@ class Usuarios(models.Model):
     class Meta:
         db_table = 'Usuarios'
 
+    def set_password(self, raw_password):
+        self.contraseña = make_password(raw_password)
+
+    def check_password(self, raw_password):
+        return check_password(raw_password, self.contraseña)
+
     def __str__(self):
-        return f"{self.nombre} {self.apellido}"
+        return f"{self.nombre} {self.apellido} ({self.id_rol.rol})"
 
 
 class Operador(models.Model):
     id_operador = models.AutoField(primary_key=True)
-    id_usuario = models.ForeignKey(Usuarios, on_delete=models.CASCADE, db_column='id_usuario')
-    TipoLicencia = models.CharField(max_length=255)
+    id_usuario = models.OneToOneField(Usuarios, on_delete=models.CASCADE, db_column='id_usuario')
+    TipoLicencia = models.CharField(max_length=50)
     fecha_vencimiento_licencia = models.DateField(null=True, blank=True)
 
     class Meta:
         db_table = 'Operador'
 
     def __str__(self):
-        return f"Operador: {self.id_usuario.nombre} {self.id_usuario.apellido}"
+        return f"{self.id_usuario.nombre} {self.id_usuario.apellido}"
 
 
 class Cliente(models.Model):
     id_cliente = models.AutoField(primary_key=True)
-    rut = models.CharField(max_length=255)
+    rut = models.CharField(max_length=255, unique=True)
     razon_social = models.CharField(max_length=255)
     giro = models.CharField(max_length=255)
     direccion = models.CharField(max_length=255)
@@ -58,18 +64,18 @@ class Cliente(models.Model):
 
 class Maquinaria(models.Model):
     id_maquina = models.AutoField(primary_key=True)
-    patente = models.CharField(max_length=8)
+    patente = models.CharField(max_length=8, unique=True)
     modelo = models.CharField(max_length=255)
     tipo = models.CharField(max_length=255)
     marca = models.CharField(max_length=255)
     horometro_actual = models.FloatField(default=0.0)
-    estado = models.CharField(max_length=255)
+    estado = models.CharField(max_length=255, default='OPERATIVA')  # OPERATIVA, REQUIERE MANTENCIÓN, EN TALLER
 
     class Meta:
         db_table = 'Maquinaria'
 
     def __str__(self):
-        return f"{self.tipo} {self.marca} ({self.patente})"
+        return f"[{self.patente}] {self.tipo} {self.marca}"
 
 
 class Contrato(models.Model):
@@ -78,7 +84,7 @@ class Contrato(models.Model):
     fecha_inicio = models.DateField()
     fecha_fin = models.DateField()
     tarifa_hora = models.IntegerField()
-    estado_contrato = models.CharField(max_length=255)
+    estado_contrato = models.CharField(max_length=255, default='ACTIVO')
 
     class Meta:
         db_table = 'Contrato'
@@ -90,49 +96,46 @@ class Contrato(models.Model):
 class HES(models.Model):
     id_hes = models.AutoField(primary_key=True)
     id_contrato = models.ForeignKey(Contrato, on_delete=models.RESTRICT, db_column='id_contrato')
-    numero_hes = models.CharField(max_length=255)
+    numero_hes = models.CharField(max_length=255, unique=True)
     fecha_emision = models.DateField()
     total_horas_aprobadas = models.IntegerField()
-    estado = models.CharField(max_length=255)
+    estado = models.CharField(max_length=50, default='APROBADA')  # APROBADA, PENDIENTE, RECHAZADA
 
     class Meta:
         db_table = 'HES'
 
     def __str__(self):
-        return f"HES #{self.numero_hes}"
+        return f"HES #{self.numero_hes} ({self.estado})"
 
 
 class Factura(models.Model):
     id_factura = models.AutoField(primary_key=True)
-    id_hes = models.ForeignKey(HES, on_delete=models.RESTRICT, db_column='id_hes')
-    folio = models.IntegerField()
+    id_hes = models.OneToOneField(HES, on_delete=models.RESTRICT, db_column='id_hes')
+    folio = models.IntegerField(unique=True)
     fecha_emision = models.DateField()
     monto_neto = models.IntegerField()
     iva = models.IntegerField()
     monto_total = models.IntegerField()
-    estado_pago = models.CharField(max_length=255)
+    estado_pago = models.CharField(max_length=255, default='EMITIDA')
 
     class Meta:
         db_table = 'Factura'
 
     def __str__(self):
-        return f"Factura #{self.folio}"
+        return f"Factura #{self.folio} - HES #{self.id_hes.numero_hes}"
 
 
 class Mantenimiento(models.Model):
     id_mantenimiento = models.AutoField(primary_key=True)
     id_maquina = models.ForeignKey(Maquinaria, on_delete=models.CASCADE, db_column='id_maquina')
     fecha_mantencion = models.DateField()
-    tipo_mantencion = models.CharField(max_length=255)
+    tipo_mantencion = models.CharField(max_length=255)  # Preventiva 500h, Preventiva 1000h, Correctiva
     horometro_mantencion = models.IntegerField()
-    estado = models.CharField(max_length=255)
+    estado = models.CharField(max_length=255, default='COMPLETADA')
     descripcion_mantenimiento = models.CharField(max_length=255)
 
     class Meta:
         db_table = 'Mantenimiento'
-
-    def __str__(self):
-        return f"Mantenimiento #{self.id_mantenimiento} - Máquina {self.id_maquina.patente}"
 
 
 class Report(models.Model):
@@ -153,9 +156,6 @@ class Report(models.Model):
     class Meta:
         db_table = 'Report'
 
-    def __str__(self):
-        return f"Reporte #{self.id_report} - {self.id_maquina.patente}"
-
 
 class Gasto(models.Model):
     id_gasto = models.AutoField(primary_key=True)
@@ -163,28 +163,25 @@ class Gasto(models.Model):
     id_mantenimiento = models.ForeignKey(Mantenimiento, on_delete=models.SET_NULL, null=True, blank=True, db_column='id_mantenimiento')
     id_contrato = models.ForeignKey(Contrato, on_delete=models.SET_NULL, null=True, blank=True, db_column='id_contrato')
     id_usuario = models.ForeignKey(Usuarios, on_delete=models.RESTRICT, db_column='id_usuario')
-    categoria_gasto = models.CharField(max_length=255)
+    categoria_gasto = models.CharField(max_length=255)  # Combustible, Repuesto, Viático, Taller
     monto = models.IntegerField()
     fecha = models.DateField()
-    numero_comprobante = models.CharField(max_length=255)
-    url_comprobante = models.CharField(max_length=255)
+    numero_comprobante = models.CharField(max_length=255, default='S/N')
+    url_comprobante = models.CharField(max_length=255, blank=True, default='')
 
     class Meta:
         db_table = 'Gasto'
-
-    def __str__(self):
-        return f"Gasto #{self.id_gasto} - ${self.monto}"
 
 
 class Doc_Maquinaria(models.Model):
     id_doc_maquina = models.AutoField(primary_key=True)
     id_maquina = models.ForeignKey(Maquinaria, on_delete=models.CASCADE, db_column='id_maquina')
-    tipo_documento = models.CharField(max_length=255)
+    tipo_documento = models.CharField(max_length=255)  # Revisión Técnica, Seguro SOAP, Permiso Circulación
     numero_documento = models.CharField(max_length=255)
     fecha_emision = models.DateField()
     fecha_vencimiento = models.DateField()
-    url_archivo = models.CharField(max_length=255)
-    estado = models.CharField(max_length=255)
+    url_archivo = models.CharField(max_length=255, blank=True, default='')
+    estado = models.CharField(max_length=255, default='VIGENTE')
 
     class Meta:
         db_table = 'Doc_Maquinaria'
@@ -193,10 +190,10 @@ class Doc_Maquinaria(models.Model):
 class Doc_empresa(models.Model):
     id_doc_empresa = models.AutoField(primary_key=True)
     id_usuario = models.ForeignKey(Usuarios, on_delete=models.CASCADE, db_column='id_usuario')
-    nombre_documento = models.CharField(max_length=255)
+    nombre_documento = models.CharField(max_length=255)  # Certificado F30, F30-1, Carpeta Tributaria
     fecha_emision = models.DateField()
     fecha_vencimiento = models.DateField(null=True, blank=True)
-    url_archivo = models.CharField(max_length=255)
+    url_archivo = models.CharField(max_length=255, blank=True, default='')
 
     class Meta:
         db_table = 'Doc_empresa'
