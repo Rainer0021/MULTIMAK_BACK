@@ -62,7 +62,7 @@ ROOT_URLCONF = 'MULTIMAK.urls'
 CORS_ALLOWED_ORIGINS = [
     "https://multimak.vercel.app",  # Tu URL de producción en Vercel
     "http://localhost:5173",         # Vite en desarrollo local
-    "http://127.0.0.1:5173",
+    "http://54.89.70.36",
 ]
 TEMPLATES = [
     {
