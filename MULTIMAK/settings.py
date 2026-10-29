@@ -64,6 +64,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",         # Vite en desarrollo local
     "http://54.89.70.36",
     "http://multimakspa.duckdns.org",
+    "https://multimakspa.duckdns.org",
 ]
 TEMPLATES = [
     {
