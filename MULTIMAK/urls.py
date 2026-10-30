@@ -6,7 +6,7 @@ from Multi_APP.views import (
     OperadorViewSet,
     ReportViewSet,
     GastoViewSet,
-    login_unificado
+    login_unificado,
 )
 
 router = DefaultRouter()
