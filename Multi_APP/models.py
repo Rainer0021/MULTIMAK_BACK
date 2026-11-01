@@ -84,6 +84,7 @@ class Maquinaria(models.Model):
 
 class Contrato(models.Model):
     id_contrato = models.AutoField(primary_key=True)
+    nombre_contrato = models.CharField(max_length=150, blank=True, null=True, verbose_name="Nombre del Contrato")
     id_cliente = models.ForeignKey(Cliente, on_delete=models.RESTRICT, db_column='id_cliente')
     fecha_inicio = models.DateField()
     fecha_fin = models.DateField()
@@ -94,7 +95,7 @@ class Contrato(models.Model):
         db_table = 'Contrato'
 
     def __str__(self):
-        return f"Contrato #{self.id_contrato} - {self.id_cliente.razon_social}"
+        return f"{self.nombre_contrato or 'Sin nombre'} - {self.cliente}"
 
 class HES(models.Model):
     id_hes = models.AutoField(primary_key=True)
