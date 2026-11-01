@@ -20,6 +20,7 @@ class Usuarios(models.Model):
     apellido = models.CharField(max_length=255)
     contraseña = models.CharField(max_length=255)
     estado_login = models.BooleanField(default=False)
+    activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'Usuarios'
@@ -39,6 +40,7 @@ class Operador(models.Model):
     id_usuario = models.OneToOneField(Usuarios, on_delete=models.CASCADE, db_column='id_usuario')
     TipoLicencia = models.CharField(max_length=50)
     fecha_vencimiento_licencia = models.DateField(null=True, blank=True)
+    activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'Operador'
@@ -54,6 +56,7 @@ class Cliente(models.Model):
     giro = models.CharField(max_length=255)
     direccion = models.CharField(max_length=255)
     contacto = models.CharField(max_length=255)
+    activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'Cliente'
@@ -70,6 +73,7 @@ class Maquinaria(models.Model):
     marca = models.CharField(max_length=255)
     horometro_actual = models.FloatField(default=0.0)
     estado = models.CharField(max_length=255, default='OPERATIVA')  # OPERATIVA, REQUIERE MANTENCIÓN, EN TALLER
+    activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'Maquinaria'
@@ -83,15 +87,14 @@ class Contrato(models.Model):
     id_cliente = models.ForeignKey(Cliente, on_delete=models.RESTRICT, db_column='id_cliente')
     fecha_inicio = models.DateField()
     fecha_fin = models.DateField()
-    tarifa_hora = models.IntegerField()
     estado_contrato = models.CharField(max_length=255, default='ACTIVO')
+    activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'Contrato'
 
     def __str__(self):
         return f"Contrato #{self.id_contrato} - {self.id_cliente.razon_social}"
-
 
 class HES(models.Model):
     id_hes = models.AutoField(primary_key=True)
@@ -100,6 +103,7 @@ class HES(models.Model):
     fecha_emision = models.DateField()
     total_horas_aprobadas = models.IntegerField()
     estado = models.CharField(max_length=50, default='APROBADA')  # APROBADA, PENDIENTE, RECHAZADA
+    activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'HES'
@@ -117,6 +121,7 @@ class Factura(models.Model):
     iva = models.IntegerField()
     monto_total = models.IntegerField()
     estado_pago = models.CharField(max_length=255, default='EMITIDA')
+    activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'Factura'
@@ -129,10 +134,11 @@ class Mantenimiento(models.Model):
     id_mantenimiento = models.AutoField(primary_key=True)
     id_maquina = models.ForeignKey(Maquinaria, on_delete=models.CASCADE, db_column='id_maquina')
     fecha_mantencion = models.DateField()
-    tipo_mantencion = models.CharField(max_length=255)  # Preventiva 500h, Preventiva 1000h, Correctiva
+    tipo_mantencion = models.CharField(max_length=255)
     horometro_mantencion = models.IntegerField()
     estado = models.CharField(max_length=255, default='COMPLETADA')
     descripcion_mantenimiento = models.CharField(max_length=255)
+    activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'Mantenimiento'
@@ -152,6 +158,7 @@ class Report(models.Model):
     horas_trabajadas = models.IntegerField()
     firmado = models.BooleanField(default=False)
     combustible_litros = models.FloatField(default=0.0)
+    activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'Report'
@@ -163,25 +170,28 @@ class Gasto(models.Model):
     id_mantenimiento = models.ForeignKey(Mantenimiento, on_delete=models.SET_NULL, null=True, blank=True, db_column='id_mantenimiento')
     id_contrato = models.ForeignKey(Contrato, on_delete=models.SET_NULL, null=True, blank=True, db_column='id_contrato')
     id_usuario = models.ForeignKey(Usuarios, on_delete=models.RESTRICT, db_column='id_usuario')
-    categoria_gasto = models.CharField(max_length=255)  # Combustible, Repuesto, Viático, Taller
+    categoria_gasto = models.CharField(max_length=255)
     monto = models.IntegerField()
     fecha = models.DateField()
     numero_comprobante = models.CharField(max_length=255, default='S/N')
     url_comprobante = models.CharField(max_length=255, blank=True, default='')
+    activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'Gasto'
 
-
 class Doc_Maquinaria(models.Model):
     id_doc_maquina = models.AutoField(primary_key=True)
     id_maquina = models.ForeignKey(Maquinaria, on_delete=models.CASCADE, db_column='id_maquina')
-    tipo_documento = models.CharField(max_length=255)  # Revisión Técnica, Seguro SOAP, Permiso Circulación
+    tipo_documento = models.CharField(max_length=255)
     numero_documento = models.CharField(max_length=255)
     fecha_emision = models.DateField()
     fecha_vencimiento = models.DateField()
+    # CAMBIO AQUÍ: Campo para almacenar archivos adjuntos
+    archivo = models.FileField(upload_to='documentos_maquinaria/', null=True, blank=True)
     url_archivo = models.CharField(max_length=255, blank=True, default='')
     estado = models.CharField(max_length=255, default='VIGENTE')
+    activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'Doc_Maquinaria'
@@ -190,10 +200,23 @@ class Doc_Maquinaria(models.Model):
 class Doc_empresa(models.Model):
     id_doc_empresa = models.AutoField(primary_key=True)
     id_usuario = models.ForeignKey(Usuarios, on_delete=models.CASCADE, db_column='id_usuario')
-    nombre_documento = models.CharField(max_length=255)  # Certificado F30, F30-1, Carpeta Tributaria
+    nombre_documento = models.CharField(max_length=255)
     fecha_emision = models.DateField()
     fecha_vencimiento = models.DateField(null=True, blank=True)
     url_archivo = models.CharField(max_length=255, blank=True, default='')
+    activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'Doc_empresa'
+
+class ContratoMaquinaria(models.Model):
+    id_contrato_maquinaria = models.AutoField(primary_key=True)
+    id_contrato = models.ForeignKey(Contrato, on_delete=models.CASCADE, db_column='id_contrato', related_name='maquinas_contrato')
+    id_maquina = models.ForeignKey(Maquinaria, on_delete=models.CASCADE, db_column='id_maquina')
+    tarifa_hora = models.IntegerField()
+
+    class Meta:
+        db_table = 'Contrato_Maquinaria'
+
+    def __str__(self):
+        return f"Contrato #{self.id_contrato.id_contrato} - Maquina #{self.id_maquina.id_maquina}"

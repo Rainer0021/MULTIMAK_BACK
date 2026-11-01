@@ -1,8 +1,8 @@
 from rest_framework import serializers
 from .models import (
     Rol, Usuarios, Operador, Cliente, Maquinaria,
-    Contrato, HES, Factura, Mantenimiento, Report,
-    Gasto, Doc_Maquinaria, Doc_empresa
+    Contrato, ContratoMaquinaria, HES, Factura, Mantenimiento, 
+    Report, Gasto, Doc_Maquinaria, Doc_empresa
 )
 
 class ClienteSerializer(serializers.ModelSerializer):
@@ -10,12 +10,25 @@ class ClienteSerializer(serializers.ModelSerializer):
         model = Cliente
         fields = '__all__'
 
+class ContratoMaquinariaSerializer(serializers.ModelSerializer):
+    maquina_patente = serializers.CharField(source='id_maquina.patente', read_only=True)
+    maquina_tipo = serializers.CharField(source='id_maquina.tipo', read_only=True)
+
+    class Meta:
+        model = ContratoMaquinaria
+        fields = '__all__'
+
 class ContratoSerializer(serializers.ModelSerializer):
     cliente_nombre = serializers.CharField(source='id_cliente.razon_social', read_only=True)
+    maquinas_contrato = serializers.SerializerMethodField()
+
     class Meta:
         model = Contrato
         fields = '__all__'
 
+    def get_maquinas_contrato(self, obj):
+        relaciones = ContratoMaquinaria.objects.filter(id_contrato=obj)
+        return ContratoMaquinariaSerializer(relaciones, many=True).data
 class HESSerializer(serializers.ModelSerializer):
     contrato_detalle = serializers.CharField(source='id_contrato.__str__', read_only=True)
     class Meta:
@@ -122,6 +135,7 @@ class GastoSerializer(serializers.ModelSerializer):
             validated_data['id_usuario'] = admin_user
         return super().create(validated_data)
 
+# Multi_APP/serializers.py
 class DocMaquinariaSerializer(serializers.ModelSerializer):
     maquina_patente = serializers.CharField(source='id_maquina.patente', read_only=True)
     class Meta:
