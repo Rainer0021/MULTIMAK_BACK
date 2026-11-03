@@ -3,6 +3,7 @@ import logging
 
 from django.shortcuts import render, redirect
 from django.contrib.auth import login, logout
+from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView
@@ -50,12 +51,47 @@ def _limpiar_rut(valor):
     return str(valor or '').strip().replace('.', '').replace('-', '').replace(' ', '').upper()
 
 
+def _sincronizar_usuario_django(request, usuario_db, contraseña_plana):
+    """
+    Sincroniza el usuario de la tabla propia 'Usuarios' con la tabla nativa de Django 'auth_user'.
+    Asigna automáticamente los grupos nativos (auth_group) según su Rol en el negocio.
+    """
+    username_rut = _limpiar_rut(usuario_db.rut)
+    
+    # 1. Obtener o crear el usuario nativo de Django
+    user_django, _ = User.objects.get_or_create(username=username_rut)
+    user_django.first_name = usuario_db.nombre or ''
+    user_django.last_name = usuario_db.apellido or ''
+    user_django.set_password(contraseña_plana)
+    
+    # 2. Determinar el rol y asignar Grupo nativo de Django
+    rol_nombre = str(usuario_db.id_rol.rol).strip() if usuario_db.id_rol else ''
+    
+    if 'admin' in rol_nombre.lower():
+        grupo, _ = Group.objects.get_or_create(name='Administrador')
+        user_django.groups.add(grupo)
+        user_django.is_staff = True  # Otorga acceso al panel /admin/
+    elif 'operador' in rol_nombre.lower():
+        grupo, _ = Group.objects.get_or_create(name='Operador')
+        user_django.groups.add(grupo)
+        user_django.is_staff = False
+    elif 'contador' in rol_nombre.lower():
+        grupo, _ = Group.objects.get_or_create(name='Contador')
+        user_django.groups.add(grupo)
+        user_django.is_staff = False
+
+    user_django.save()
+    
+    # 3. Iniciar sesión nativa de Django
+    login(request, user_django)
+    return user_django
+
+
 @api_view(['POST'])
 def login_unificado(request):
     """
     Login único para Administrador, Contador y Operador.
-    Responde siempre con { error } y un código HTTP claro:
-      400 faltan datos · 401 credenciales inválidas · 500 error interno.
+    Sincroniza con django.contrib.auth y sus grupos/permisos nativos.
     """
     try:
         data = request.data or {}
@@ -90,7 +126,10 @@ def login_unificado(request):
             usuario_encontrado.set_password(contraseña_recibida)
             usuario_encontrado.save(update_fields=['contraseña'])
 
-        # 4. Rol y datos de operador
+        # 4. INTEGRACIÓN NATIVA: Sincronizar usuario con django.contrib.auth y asignarle su Grupo
+        _sincronizar_usuario_django(request._request, usuario_encontrado, contraseña_recibida)
+
+        # 5. Rol y datos de operador para la respuesta de React
         rol_nombre = str(usuario_encontrado.id_rol.rol) if usuario_encontrado.id_rol else ''
         id_operador = None
         tipo_licencia = None
@@ -101,7 +140,7 @@ def login_unificado(request):
                 id_operador = op.pk
                 tipo_licencia = op.TipoLicencia
 
-        # 5. Respuesta
+        # 6. Respuesta para React
         return Response({
             'mensaje': 'Acceso autorizado',
             'id_usuario': usuario_encontrado.pk,
@@ -118,6 +157,7 @@ def login_unificado(request):
             {'error': 'Error interno del servidor. Intenta nuevamente en unos minutos.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
 
 @api_view(['GET'])
 def resumen_kpis(request):
@@ -196,7 +236,6 @@ class OperadorViewSet(BaseSoftDeleteViewSet):
     serializer_class = OperadorSerializer
 
     def destroy(self, request, *args, **kwargs):
-        # Usa el delete() del modelo, que también desactiva al usuario del operador.
         self.get_object().delete()
         return Response({'mensaje': 'Operador desactivado correctamente.'}, status=status.HTTP_200_OK)
 
@@ -220,7 +259,6 @@ class ReportViewSet(BaseSoftDeleteViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        # El operador pide solo sus partes: /reports/?id_operador=3
         id_operador = self.request.query_params.get('id_operador')
         if id_operador and id_operador.isdigit():
             qs = qs.filter(id_operador_id=int(id_operador))
@@ -231,7 +269,6 @@ class ReportViewSet(BaseSoftDeleteViewSet):
         horometro_inicial = serializer.validated_data.get('horometro_inicial', 0.0)
         horometro_final = serializer.validated_data.get('horometro_final', 0.0)
 
-        # Se conservan los decimales (antes int() descartaba, p. ej., 0,5 h).
         horas_calculadas = max(0.0, round(horometro_final - horometro_inicial, 1))
         reporte = serializer.save(horas_trabajadas=horas_calculadas)
 
@@ -239,8 +276,6 @@ class ReportViewSet(BaseSoftDeleteViewSet):
         if horometro_final > maquina.horometro_actual:
             maquina.horometro_actual = horometro_final
 
-        # Mantención cada 500 h: se marca solo si se cruzó una pauta y no hay
-        # una mantención registrada desde entonces (con 50 h de margen).
         ultima = Mantenimiento.objects.filter(
             id_maquina=maquina, activo=True
         ).aggregate(m=Max('horometro_mantencion'))['m'] or 0
