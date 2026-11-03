@@ -2,6 +2,7 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from django.db import transaction
 from rest_framework import serializers
 from .models import (
     Rol, Usuarios, Operador, Cliente, Maquinaria,
@@ -19,6 +20,49 @@ def hoy_chile():
 
 def _fmt(fecha):
     return fecha.strftime('%d-%m-%Y') if fecha else 'sin término'
+
+
+def normalizar_rut(texto):
+    """Deja solo dígitos y K en mayúscula (sin puntos ni guion)."""
+    return re.sub(r'[^0-9kK]', '', str(texto or '')).upper()
+
+
+def formatear_rut(texto):
+    """12345678K -> 12.345.678-K"""
+    limpio = normalizar_rut(texto)
+    if len(limpio) < 2:
+        return limpio
+    cuerpo, dv = limpio[:-1], limpio[-1]
+    return f"{int(cuerpo):,}".replace(',', '.') + f"-{dv}"
+
+
+def rut_valido(texto):
+    limpio = normalizar_rut(texto)
+    if len(limpio) < 8 or not limpio[:-1].isdigit():
+        return False
+    suma, mult = 0, 2
+    for ch in reversed(limpio[:-1]):
+        suma += int(ch) * mult
+        mult = mult + 1 if mult < 7 else 2
+    esperado = 11 - (suma % 11)
+    dv = '0' if esperado == 11 else 'K' if esperado == 10 else str(esperado)
+    return limpio[-1] == dv
+
+
+ESTADOS_MAQUINA = {
+    'DISPONIBLE': 'OPERATIVA',
+    'OPERATIVA': 'OPERATIVA',
+    'EN FAENA': 'EN FAENA',
+    'EN TALLER': 'EN TALLER',
+    'REQUIERE MANTENCIÓN': 'REQUIERE MANTENCIÓN',
+    'REQUIERE MANTENCION': 'REQUIERE MANTENCIÓN',
+}
+
+
+def normalizar_estado_maquina(valor):
+    """Unifica los estados (antes el front guardaba 'En Taller' y el back 'EN TALLER')."""
+    clave = str(valor or '').strip().upper()
+    return ESTADOS_MAQUINA.get(clave, clave or 'OPERATIVA')
 
 
 def telefono_cl_valido(texto):
@@ -154,9 +198,18 @@ class FacturaSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def validate(self, attrs):
-        hes = attrs.get('id_hes')
+        hes = attrs.get('id_hes', getattr(self.instance, 'id_hes', None))
         if not hes:
             raise serializers.ValidationError({"id_hes": "Debe vincular una HES aprobada."})
+
+        neto = attrs.get('monto_neto', getattr(self.instance, 'monto_neto', None))
+        iva = attrs.get('iva', getattr(self.instance, 'iva', None))
+        total = attrs.get('monto_total', getattr(self.instance, 'monto_total', None))
+        if None not in (neto, iva, total):
+            if neto <= 0:
+                raise serializers.ValidationError({"monto_neto": "El monto neto debe ser mayor a 0."})
+            if neto + iva != total:
+                raise serializers.ValidationError({"monto_total": "El total debe ser igual al neto más el IVA."})
         if hes.estado.upper() != 'APROBADA':
             raise serializers.ValidationError({
                 "id_hes": f"Facturación bloqueada: La HES #{hes.numero_hes} está en estado '{hes.estado}'. Requiere estar 'APROBADA'."
@@ -170,25 +223,59 @@ class MaquinariaSerializer(serializers.ModelSerializer):
         model = Maquinaria
         fields = '__all__'
 
+    def validate_estado(self, value):
+        return normalizar_estado_maquina(value)
+
+    def validate_horometro_actual(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError('El horómetro no puede ser negativo.')
+        return value
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['estado'] = normalizar_estado_maquina(data.get('estado'))
+        return data
+
 class OperadorSerializer(serializers.ModelSerializer):
     # 'id_usuario' se mantiene como campo de solo lectura para no romper el front.
     id_usuario = serializers.PrimaryKeyRelatedField(source='usuario', read_only=True)
     nombre = serializers.CharField(source='usuario.nombre', read_only=True)
     apellido = serializers.CharField(source='usuario.apellido', read_only=True)
     rut = serializers.CharField(source='usuario.rut', read_only=True)
-
-    nombre_input = serializers.CharField(write_only=True, required=False)
-    apellido_input = serializers.CharField(write_only=True, required=False)
-    rut_input = serializers.CharField(write_only=True, required=False)
+    licencia_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Operador
         fields = [
             'id_operador', 'usuario', 'id_usuario', 'TipoLicencia',
-            'fecha_vencimiento_licencia', 'nombre', 'apellido', 'rut',
-            'nombre_input', 'apellido_input', 'rut_input'
+            'fecha_vencimiento_licencia', 'archivo_licencia', 'licencia_url',
+            'nombre', 'apellido', 'rut',
         ]
-        extra_kwargs = {'usuario': {'required': False}}
+        extra_kwargs = {
+            'usuario': {'required': False},
+            'archivo_licencia': {'write_only': True, 'required': False},
+        }
+
+    def get_licencia_url(self, obj):
+        return obj.archivo_licencia.url if obj.archivo_licencia else ''
+
+    # --- datos de la cuenta de acceso (llegan como nombre / apellido / rut / password) ---
+    def _datos(self):
+        d = self.initial_data
+        return {
+            'nombre': str(d.get('nombre') or '').strip(),
+            'apellido': str(d.get('apellido') or '').strip(),
+            'rut': str(d.get('rut') or '').strip(),
+            'password': str(d.get('password') or '').strip(),
+        }
+
+    @staticmethod
+    def _usuario_por_rut(rut, excluir_pk=None):
+        buscado = normalizar_rut(rut)
+        for u in Usuarios.objects.select_related('id_rol').all():
+            if u.pk != excluir_pk and normalizar_rut(u.rut) == buscado:
+                return u
+        return None
 
     def validate_fecha_vencimiento_licencia(self, value):
         if value is None:
@@ -198,24 +285,85 @@ class OperadorSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('La licencia debe vencer a partir de hoy.')
         return value
 
-    def create(self, validated_data):
-        nombre = validated_data.pop('nombre_input', self.initial_data.get('nombre', 'Operador'))
-        apellido = validated_data.pop('apellido_input', self.initial_data.get('apellido', ''))
-        rut = validated_data.pop('rut_input', self.initial_data.get('rut', ''))
+    def validate(self, attrs):
+        datos = self._datos()
+        creando = self.instance is None
+        errores = {}
 
+        if creando or 'rut' in self.initial_data:
+            if not datos['rut']:
+                errores['rut'] = 'Ingrese el RUT del operador.'
+            elif not rut_valido(datos['rut']):
+                errores['rut'] = 'RUT inválido (verifique los dígitos).'
+            else:
+                excluir = self.instance.usuario_id if self.instance else None
+                existente = self._usuario_por_rut(datos['rut'], excluir_pk=excluir)
+                if existente:
+                    op = Operador.objects.filter(usuario=existente).first()
+                    if op and op.activo and existente.activo:
+                        errores['rut'] = 'Ya existe un operador activo con este RUT.'
+                    elif not op and 'operador' not in str(existente.id_rol.rol).lower():
+                        errores['rut'] = f'Este RUT ya pertenece a un usuario con rol {existente.id_rol.rol}.'
+
+        if creando:
+            if not datos['nombre']:
+                errores['nombre'] = 'Ingrese el nombre del operador.'
+            if not datos['apellido']:
+                errores['apellido'] = 'Ingrese el apellido del operador.'
+            if len(datos['password']) < 6:
+                errores['password'] = 'La contraseña debe tener al menos 6 caracteres.'
+        elif datos['password'] and len(datos['password']) < 6:
+            errores['password'] = 'La contraseña debe tener al menos 6 caracteres.'
+
+        if errores:
+            raise serializers.ValidationError(errores)
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        datos = self._datos()
+        validated_data.pop('usuario', None)
         rol_op, _ = Rol.objects.get_or_create(rol='Operador')
-        usuario, _ = Usuarios.objects.get_or_create(
-            rut=rut,
-            defaults={
-                'nombre': nombre,
-                'apellido': apellido,
-                'id_rol': rol_op,
-                'contraseña': 'operador123',
-                'estado_login': False
-            }
-        )
+
+        usuario = self._usuario_por_rut(datos['rut'])
+        if usuario is None:
+            usuario = Usuarios(id_rol=rol_op, rut=formatear_rut(datos['rut']))
+        usuario.nombre = datos['nombre']
+        usuario.apellido = datos['apellido']
+        usuario.activo = True
+        usuario.set_password(datos['password'])
+        usuario.save()
+        
+        validated_data['url_licencia'] = ''
+
+        # Si el RUT pertenecía a un operador dado de baja, se reactiva en vez de duplicarlo.
+        operador = Operador.objects.filter(usuario=usuario).first()
+        if operador:
+            for campo, valor in validated_data.items():
+                setattr(operador, campo, valor)
+            operador.activo = True
+            operador.save()
+            return operador
+
         validated_data['usuario'] = usuario
         return super().create(validated_data)
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        datos = self._datos()
+        validated_data.pop('usuario', None)
+        usuario = instance.usuario
+        if usuario:
+            if datos['nombre']:
+                usuario.nombre = datos['nombre']
+            if datos['apellido']:
+                usuario.apellido = datos['apellido']
+            if datos['rut']:
+                usuario.rut = formatear_rut(datos['rut'])
+            if datos['password']:
+                usuario.set_password(datos['password'])
+            usuario.save()
+        return super().update(instance, validated_data)
 
 class MantenimientoSerializer(serializers.ModelSerializer):
     maquina_patente = serializers.CharField(source='id_maquina.patente', read_only=True)
@@ -225,24 +373,77 @@ class MantenimientoSerializer(serializers.ModelSerializer):
 
 class ReportSerializer(serializers.ModelSerializer):
     maquina_patente = serializers.CharField(source='id_maquina.patente', read_only=True)
+    contrato_nombre = serializers.SerializerMethodField()
+    cliente_nombre = serializers.SerializerMethodField()
+    operador_nombre = serializers.SerializerMethodField()
+    tarifa_hora = serializers.SerializerMethodField()
+    ingreso_estimado = serializers.SerializerMethodField()
 
     class Meta:
         model = Report
         fields = '__all__'
+        # Las horas siempre se calculan en el servidor a partir del horómetro.
+        read_only_fields = ('horas_trabajadas',)
+
+    # --- datos derivados para las tablas (el front ya no inventa tarifas) ---
+    def _tarifa(self, obj):
+        if not obj.id_contrato_id:
+            return None
+        mapa = getattr(self, '_mapa_tarifas', None)
+        if mapa is None:
+            mapa = {
+                (r.id_contrato_id, r.id_maquina_id): r.tarifa_hora
+                for r in ContratoMaquinaria.objects.all()
+            }
+            self._mapa_tarifas = mapa
+        return mapa.get((obj.id_contrato_id, obj.id_maquina_id))
+
+    def get_contrato_nombre(self, obj):
+        c = obj.id_contrato
+        return (c.nombre_contrato or f'Contrato #{c.pk}') if c else None
+
+    def get_cliente_nombre(self, obj):
+        c = obj.id_contrato
+        return c.id_cliente.razon_social if c and c.id_cliente else None
+
+    def get_operador_nombre(self, obj):
+        return str(obj.id_operador) if obj.id_operador_id else None
+
+    def get_tarifa_hora(self, obj):
+        return self._tarifa(obj)
+
+    def get_ingreso_estimado(self, obj):
+        tarifa = self._tarifa(obj)
+        return round((obj.horas_trabajadas or 0) * tarifa) if tarifa else 0
+
+    def validate_combustible_litros(self, value):
+        if value is None:
+            return 0.0
+        if value < 0:
+            raise serializers.ValidationError('Los litros de combustible no pueden ser negativos.')
+        if value > 2000:
+            raise serializers.ValidationError('Los litros de combustible parecen excesivos. Revise el valor.')
+        return value
+
+    def validate_fecha(self, value):
+        if value > hoy_chile():
+            raise serializers.ValidationError('La fecha del parte no puede ser posterior a hoy.')
+        return value
 
     def validate(self, attrs):
-        ini = attrs.get('horometro_inicial', 0.0)
-        fin = attrs.get('horometro_final', 0.0)
-        firmado = attrs.get('firmado', False)
-        contrato = attrs.get('id_contrato')
-        maquina = attrs.get('id_maquina')
-        fecha = attrs.get('fecha')
+        inst = self.instance
+        ini = attrs.get('horometro_inicial', getattr(inst, 'horometro_inicial', 0.0))
+        fin = attrs.get('horometro_final', getattr(inst, 'horometro_final', 0.0))
+        firmado = attrs.get('firmado', getattr(inst, 'firmado', False))
+        contrato = attrs.get('id_contrato', getattr(inst, 'id_contrato', None))
+        maquina = attrs.get('id_maquina', getattr(inst, 'id_maquina', None))
+        fecha = attrs.get('fecha', getattr(inst, 'fecha', None))
 
         # El parte diario siempre corresponde a un contrato y a una máquina de ese contrato.
-        if self.instance is None and contrato is None:
+        if inst is None and contrato is None:
             raise serializers.ValidationError({'id_contrato': 'Debe indicar el contrato al que corresponde el parte diario.'})
 
-        if contrato is not None:
+        if contrato is not None and (inst is None or 'id_contrato' in attrs or 'id_maquina' in attrs or 'fecha' in attrs):
             nombre = contrato.nombre_contrato or f'#{contrato.pk}'
             if maquina is not None and not ContratoMaquinaria.objects.filter(id_contrato=contrato, id_maquina=maquina).exists():
                 raise serializers.ValidationError({
@@ -256,7 +457,7 @@ class ReportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({'id_contrato': f'El contrato «{nombre}» no está vigente en la fecha del parte.'})
 
         # Continuidad del horómetro: el inicial debe ser el último registrado de la máquina.
-        if self.instance is None and maquina is not None and abs(ini - maquina.horometro_actual) > 0.05:
+        if inst is None and maquina is not None and abs(ini - maquina.horometro_actual) > 0.05:
             raise serializers.ValidationError({
                 'horometro_inicial': (
                     f'El horómetro inicial debe ser {maquina.horometro_actual:g} h (último registro de la máquina). '
@@ -267,13 +468,15 @@ class ReportSerializer(serializers.ModelSerializer):
         if fin <= ini:
             raise serializers.ValidationError({"horometro_final": "El horómetro final debe ser estrictamente mayor al inicial."})
         if (fin - ini) > 24:
-            raise serializers.ValidationError({"horas_trabajadas": "La jornada no puede superar las 24 horas continuas."})
+            raise serializers.ValidationError({"horometro_final": "La jornada no puede superar las 24 horas continuas."})
         if not firmado:
             raise serializers.ValidationError({"firmado": "Es obligatorio contar con el V°B° / firma del supervisor en terreno."})
         return attrs
 
 class GastoSerializer(serializers.ModelSerializer):
     maquina_patente = serializers.CharField(source='id_maquina.patente', read_only=True)
+    contrato_nombre = serializers.SerializerMethodField()
+    comprobante_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Gasto
@@ -281,8 +484,23 @@ class GastoSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'id_usuario': {'required': False},
             'numero_comprobante': {'required': False},
-            'url_comprobante': {'required': False}
+            'url_comprobante': {'required': False},
+            'archivo_comprobante': {'write_only': True, 'required': False},
         }
+
+    def get_contrato_nombre(self, obj):
+        c = obj.id_contrato
+        return (c.nombre_contrato or f'Contrato #{c.pk}') if c else None
+
+    def get_comprobante_url(self, obj):
+        if obj.archivo_comprobante:
+            return obj.archivo_comprobante.url
+        return obj.url_comprobante or ''
+
+    def validate_monto(self, value):
+        if value is None or value <= 0:
+            raise serializers.ValidationError('El monto debe ser mayor a 0.')
+        return value
 
     def validate_fecha(self, value):
         if value > hoy_chile():
@@ -290,8 +508,12 @@ class GastoSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        if 'id_usuario' not in validated_data or not validated_data['id_usuario']:
-            admin_user = Usuarios.objects.first()
+        if not validated_data.get('id_usuario'):
+            # Respaldo: el primer usuario administrador activo (antes tomaba "el primero" sin importar el rol).
+            admin_user = (
+                Usuarios.objects.filter(activo=True, id_rol__rol__icontains='admin').first()
+                or Usuarios.objects.filter(activo=True).first()
+            )
             validated_data['id_usuario'] = admin_user
         return super().create(validated_data)
 

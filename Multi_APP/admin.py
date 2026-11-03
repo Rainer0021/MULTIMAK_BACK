@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     Rol, Usuarios, Operador, Cliente, Maquinaria, 
     Contrato, HES, Factura, Mantenimiento, Report, 
-    Gasto, Doc_Maquinaria, Doc_empresa
+    Gasto, Doc_Maquinaria, Doc_empresa, ContratoMaquinaria
 )
 
 @admin.register(Rol)
@@ -56,3 +56,7 @@ class DocMaquinariaAdmin(admin.ModelAdmin):
 @admin.register(Doc_empresa)
 class DocEmpresaAdmin(admin.ModelAdmin):
     list_display = ('id_doc_empresa', 'nombre_documento', 'fecha_emision', 'activo')
+
+@admin.register(ContratoMaquinaria)
+class ContratoMaquinariaAdmin(admin.ModelAdmin):
+    list_display = ('id_contrato_maquinaria', 'id_contrato', 'id_maquina', 'tarifa_hora')

@@ -23,12 +23,25 @@ load_dotenv(BASE_DIR / '.env')
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-h==4w3=nn-6p5u2m(w&v@z-)_7o8lbu2)h-c0ltfw2!azw+-0k'
+# En producción define SECRET_KEY en el .env (la clave de abajo quedó expuesta en el código: conviene cambiarla).
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY',
+    'django-insecure-h==4w3=nn-6p5u2m(w&v@z-)_7o8lbu2)h-c0ltfw2!azw+-0k',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# En producción define DEBUG=False en el .env.
+DEBUG = os.environ.get('DEBUG', 'True').lower() in ('1', 'true', 'yes')
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.environ.get(
+    'ALLOWED_HOSTS',
+    'localhost,127.0.0.1,multimakspa.duckdns.org,54.89.70.36',
+).split(',')
+
+CSRF_TRUSTED_ORIGINS = [
+    'https://multimakspa.duckdns.org',
+    'http://multimakspa.duckdns.org',
+]
 
 
 # Application definition
@@ -54,7 +67,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'django.middleware.common.CommonMiddleware',
 ]
 
 ROOT_URLCONF = 'MULTIMAK.urls'
@@ -87,11 +99,18 @@ WSGI_APPLICATION = 'MULTIMAK.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
+_DATABASE_URL = os.environ.get('DATABASE_URL') or f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+# SSL solo aplica a bases remotas (PostgreSQL, etc.); con SQLite rompe la conexión.
+_USAR_SSL = (
+    not _DATABASE_URL.startswith('sqlite')
+    and os.environ.get('DB_SSL_REQUIRE', 'True').lower() in ('1', 'true', 'yes')
+)
+
 DATABASES = {
     'default': dj_database_url.config(
-        default=os.environ.get('DATABASE_URL'),
+        default=_DATABASE_URL,
         conn_max_age=600,
-        ssl_require=True,
+        ssl_require=_USAR_SSL,
     )
 }
 
@@ -118,9 +137,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/6.1/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'es-cl'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'America/Punta_Arenas'
 
 USE_I18N = True
 
@@ -132,12 +151,14 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# Archivos subidos (comprobantes de gasto, licencias, documentos de maquinaria)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
+
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'

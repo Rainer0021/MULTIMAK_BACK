@@ -40,6 +40,8 @@ class Operador(models.Model):
     usuario = models.OneToOneField('Usuarios', on_delete=models.CASCADE, db_column='id_usuario', null=True, blank=True)
     TipoLicencia = models.CharField(max_length=100, blank=True, null=True)
     fecha_vencimiento_licencia = models.DateField(blank=True, null=True)
+    archivo_licencia = models.FileField(upload_to='licencias/', null=True, blank=True)
+    url_licencia = models.CharField(max_length=255, blank=True, default='')
     activo = models.BooleanField(default=True)
 
     class Meta:
@@ -157,6 +159,9 @@ class Mantenimiento(models.Model):
     class Meta:
         db_table = 'Mantenimiento'
 
+    def __str__(self):
+        return f"{self.tipo_mantencion} - {self.id_maquina.patente} ({self.fecha_mantencion})"
+
 
 class Report(models.Model):
     id_report = models.AutoField(primary_key=True)
@@ -169,7 +174,7 @@ class Report(models.Model):
     hora_salida = models.TimeField()
     horometro_inicial = models.FloatField()
     horometro_final = models.FloatField()
-    horas_trabajadas = models.IntegerField()
+    horas_trabajadas = models.FloatField(default=0.0)
     firmado = models.BooleanField(default=False)
     combustible_litros = models.FloatField(default=0.0)
     activo = models.BooleanField(default=True)
@@ -189,6 +194,7 @@ class Gasto(models.Model):
     fecha = models.DateField()
     numero_comprobante = models.CharField(max_length=255, default='S/N')
     url_comprobante = models.CharField(max_length=255, blank=True, default='')
+    archivo_comprobante = models.FileField(upload_to='comprobantes/', null=True, blank=True)
     activo = models.BooleanField(default=True)
 
     class Meta:

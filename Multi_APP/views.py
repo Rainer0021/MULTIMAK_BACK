@@ -1,3 +1,6 @@
+import hmac
+import logging
+
 from django.shortcuts import render, redirect
 from django.contrib.auth import login, logout
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
@@ -21,8 +24,11 @@ from .serializers import (
     MaquinariaSerializer, OperadorSerializer, ReportSerializer, GastoSerializer,
     ClienteSerializer, ContratoSerializer, ContratoMaquinariaSerializer,
     HESSerializer, FacturaSerializer, DocMaquinariaSerializer, DocEmpresaSerializer,
-    MantenimientoSerializer, hoy_chile, ESTADOS_CONTRATO_VIGENTES
+    MantenimientoSerializer, hoy_chile, ESTADOS_CONTRATO_VIGENTES, normalizar_estado_maquina
 )
+
+logger = logging.getLogger(__name__)
+
 
 class BaseSoftDeleteViewSet(viewsets.ModelViewSet):
     """
@@ -39,55 +45,63 @@ class BaseSoftDeleteViewSet(viewsets.ModelViewSet):
         return Response({'mensaje': 'Registro desactivado correctamente.'}, status=status.HTTP_200_OK)
 
 
+def _limpiar_rut(valor):
+    """'12.345.678-k' -> '12345678K' (para comparar sin importar el formato)."""
+    return str(valor or '').strip().replace('.', '').replace('-', '').replace(' ', '').upper()
+
+
 @api_view(['POST'])
 def login_unificado(request):
+    """
+    Login único para Administrador, Contador y Operador.
+    Responde siempre con { error } y un código HTTP claro:
+      400 faltan datos · 401 credenciales inválidas · 500 error interno.
+    """
     try:
         data = request.data or {}
-        
-        # 1. Obtener RUT y contraseña manejando múltiples nombres de parámetros
-        raw_rut = data.get('rut') or data.get('username') or ''
-        raw_password = data.get('contraseña') or data.get('password') or ''
 
-        rut_recibido = str(raw_rut).strip().replace('.', '').replace('-', '').upper()
-        contraseña_recibida = str(raw_password).strip()
+        # 1. RUT y contraseña (acepta rut/username y contraseña/password)
+        rut_recibido = _limpiar_rut(data.get('rut') or data.get('username'))
+        contraseña_recibida = str(data.get('contraseña') or data.get('password') or '').strip()
 
         if not rut_recibido or not contraseña_recibida:
-            return Response({'error': 'Debe ingresar RUT y contraseña'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'Debe ingresar RUT y contraseña.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 2. Buscar usuario comparando RUT limpio
+        # 2. Buscar al usuario activo comparando el RUT sin puntos ni guion
         usuario_encontrado = None
-        for u in Usuarios.objects.filter(activo=True):
-            if u.rut:
-                rut_bd = str(u.rut).strip().replace('.', '').replace('-', '').upper()
-                if rut_bd == rut_recibido:
-                    usuario_encontrado = u
-                    break
+        for u in Usuarios.objects.filter(activo=True).select_related('id_rol'):
+            if _limpiar_rut(u.rut) == rut_recibido:
+                usuario_encontrado = u
+                break
 
         if not usuario_encontrado:
-            return Response({'error': 'Credenciales inválidas'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({'error': 'RUT o contraseña incorrectos.'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        # 3. Validar contraseña
-        clave_bd = str(usuario_encontrado.contraseña).strip()
-        es_valida = check_password(contraseña_recibida, clave_bd) or (clave_bd == contraseña_recibida)
+        # 3. Validar contraseña (hash; o texto plano de cuentas antiguas)
+        clave_bd = str(usuario_encontrado.contraseña or '').strip()
+        es_hash_valido = check_password(contraseña_recibida, clave_bd)
+        es_texto_plano = hmac.compare_digest(clave_bd.encode('utf-8'), contraseña_recibida.encode('utf-8'))
 
-        if not es_valida:
-            return Response({'error': 'Credenciales inválidas'}, status=status.HTTP_401_UNAUTHORIZED)
+        if not (es_hash_valido or es_texto_plano):
+            return Response({'error': 'RUT o contraseña incorrectos.'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        # 4. Obtener datos del rol y operador
+        # Cuentas antiguas con clave en texto plano: se convierten a hash al ingresar.
+        if es_texto_plano and not es_hash_valido:
+            usuario_encontrado.set_password(contraseña_recibida)
+            usuario_encontrado.save(update_fields=['contraseña'])
+
+        # 4. Rol y datos de operador
         rol_nombre = str(usuario_encontrado.id_rol.rol) if usuario_encontrado.id_rol else ''
         id_operador = None
         tipo_licencia = None
 
         if 'operador' in rol_nombre.lower():
-            try:
-                op = Operador.objects.filter(usuario=usuario_encontrado).first()
-                if op:
-                    id_operador = op.pk
-                    tipo_licencia = getattr(op, 'TipoLicencia', None)
-            except Exception as op_err:
-                print(f"⚠️ Consulta operador: {op_err}")
+            op = Operador.objects.filter(usuario=usuario_encontrado, activo=True).first()
+            if op:
+                id_operador = op.pk
+                tipo_licencia = op.TipoLicencia
 
-        # 5. Respuesta exitosa garantizada
+        # 5. Respuesta
         return Response({
             'mensaje': 'Acceso autorizado',
             'id_usuario': usuario_encontrado.pk,
@@ -95,12 +109,15 @@ def login_unificado(request):
             'nombre': f"{usuario_encontrado.nombre} {usuario_encontrado.apellido}".strip(),
             'rol': rol_nombre,
             'id_operador': id_operador,
-            'tipo_licencia': tipo_licencia
+            'tipo_licencia': tipo_licencia,
         }, status=status.HTTP_200_OK)
 
-    except Exception as e:
-        print(f"❌ Error en login_unificado: {str(e)}")
-        return Response({'error': f'Error en el servidor: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    except Exception:
+        logger.exception('Error en login_unificado')
+        return Response(
+            {'error': 'Error interno del servidor. Intenta nuevamente en unos minutos.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 @api_view(['GET'])
 def resumen_kpis(request):
@@ -151,7 +168,7 @@ def contratos_para_operador(request):
             'marca': m.marca,
             'modelo': m.modelo,
             'tipo': m.tipo,
-            'estado': m.estado,
+            'estado': normalizar_estado_maquina(m.estado),
             'horometro_actual': m.horometro_actual,
         })
 
@@ -175,7 +192,7 @@ class MaquinariaViewSet(BaseSoftDeleteViewSet):
 
 
 class OperadorViewSet(BaseSoftDeleteViewSet):
-    queryset = Operador.objects.all().order_by('-id_operador')
+    queryset = Operador.objects.select_related('usuario').order_by('-id_operador')
     serializer_class = OperadorSerializer
 
     def destroy(self, request, *args, **kwargs):
@@ -196,15 +213,26 @@ class MantenimientoViewSet(BaseSoftDeleteViewSet):
 
 
 class ReportViewSet(BaseSoftDeleteViewSet):
-    queryset = Report.objects.all().order_by('-id_report')
+    queryset = Report.objects.select_related(
+        'id_contrato', 'id_contrato__id_cliente', 'id_operador', 'id_operador__usuario', 'id_maquina'
+    ).order_by('-id_report')
     serializer_class = ReportSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # El operador pide solo sus partes: /reports/?id_operador=3
+        id_operador = self.request.query_params.get('id_operador')
+        if id_operador and id_operador.isdigit():
+            qs = qs.filter(id_operador_id=int(id_operador))
+        return qs
 
     @transaction.atomic
     def perform_create(self, serializer):
         horometro_inicial = serializer.validated_data.get('horometro_inicial', 0.0)
         horometro_final = serializer.validated_data.get('horometro_final', 0.0)
-        
-        horas_calculadas = max(0, int(horometro_final - horometro_inicial))
+
+        # Se conservan los decimales (antes int() descartaba, p. ej., 0,5 h).
+        horas_calculadas = max(0.0, round(horometro_final - horometro_inicial, 1))
         reporte = serializer.save(horas_trabajadas=horas_calculadas)
 
         maquina = reporte.id_maquina
@@ -224,7 +252,7 @@ class ReportViewSet(BaseSoftDeleteViewSet):
 
 
 class GastoViewSet(BaseSoftDeleteViewSet):
-    queryset = Gasto.objects.all().order_by('-fecha')
+    queryset = Gasto.objects.select_related('id_maquina', 'id_contrato').order_by('-fecha')
     serializer_class = GastoSerializer
 
 
