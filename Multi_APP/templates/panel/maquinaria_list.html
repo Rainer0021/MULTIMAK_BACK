@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Evaluación Backend - Vista Nativa</title>
+</head>
+<body>
+    <h2>Panel de Maquinarias (Vista Nativa Django ORM)</h2>
+    <p>Usuario autenticado correctamente mediante LoginRequiredMixin.</p>
+    <a href="{% url 'logout_evaluacion' %}">Cerrar Sesión</a>
+    <hr>
+    <ul>
+        {% for maquina in maquinarias %}
+            <li><strong>{{ maquina.patente }}</strong> - {{ maquina.marca }} {{ maquina.modelo }} ({{ maquina.estado }})</li>
+        {% empty %}
+            <li>No hay maquinarias activas.</li>
+        {% endfor %}
+    </ul>
+</body>
+</html>

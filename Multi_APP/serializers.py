@@ -105,6 +105,11 @@ class ClienteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Ingrese un teléfono chileno válido. Ej: +56 9 8765 4321.')
         return value
 
+    def create(self, validated_data):
+        validated_data['activo'] = True
+        return super().create(validated_data)
+
+
 class ContratoMaquinariaSerializer(serializers.ModelSerializer):
     maquina_patente = serializers.CharField(source='id_maquina.patente', read_only=True)
     maquina_tipo = serializers.CharField(source='id_maquina.tipo', read_only=True)
@@ -143,6 +148,7 @@ class ContratoMaquinariaSerializer(serializers.ModelSerializer):
                 })
         return attrs
 
+
 class ContratoSerializer(serializers.ModelSerializer):
     cliente_nombre = serializers.CharField(source='id_cliente.razon_social', read_only=True)
     maquinas_contrato = serializers.SerializerMethodField()
@@ -165,7 +171,6 @@ class ContratoSerializer(serializers.ModelSerializer):
         if self.instance is None and inicio and inicio < hoy_chile():
             raise serializers.ValidationError({'fecha_inicio': 'La fecha de inicio no puede ser anterior a hoy.'})
 
-        # Al prorrogar o cambiar fechas: ninguna máquina del contrato puede chocar con otro contrato.
         if self.instance is not None and ('fecha_inicio' in attrs or 'fecha_fin' in attrs):
             estado = attrs.get('estado_contrato', self.instance.estado_contrato)
             if estado in ESTADOS_CONTRATO_VIGENTES:
@@ -184,11 +189,21 @@ class ContratoSerializer(serializers.ModelSerializer):
                         })
         return attrs
 
+    def create(self, validated_data):
+        validated_data['activo'] = True
+        return super().create(validated_data)
+
+
 class HESSerializer(serializers.ModelSerializer):
     contrato_detalle = serializers.CharField(source='id_contrato.__str__', read_only=True)
     class Meta:
         model = HES
         fields = '__all__'
+
+    def create(self, validated_data):
+        validated_data['activo'] = True
+        return super().create(validated_data)
+
 
 class FacturaSerializer(serializers.ModelSerializer):
     hes_numero = serializers.CharField(source='id_hes.numero_hes', read_only=True)
@@ -218,6 +233,11 @@ class FacturaSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"id_hes": f"La HES #{hes.numero_hes} ya posee una factura emitida."})
         return attrs
 
+    def create(self, validated_data):
+        validated_data['activo'] = True
+        return super().create(validated_data)
+
+
 class MaquinariaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Maquinaria
@@ -231,13 +251,37 @@ class MaquinariaSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('El horómetro no puede ser negativo.')
         return value
 
+    def validate_patente(self, value):
+        patente_limpia = str(value or '').strip().upper()
+        # Buscar si ya existe la patente activa en la base de datos
+        existente = Maquinaria.objects.filter(patente__iexact=patente_limpia, activo=True)
+        if self.instance:
+            existente = existente.exclude(pk=self.instance.pk)
+            
+        if existente.exists():
+            raise serializers.ValidationError('Ya existe una maquinaria activa con este patente.')
+        return patente_limpia
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data['estado'] = normalizar_estado_maquina(data.get('estado'))
         return data
 
+    def create(self, validated_data):
+        patente = validated_data.get('patente')
+        # Si la patente existía pero estaba desactivada (activo=False), la reactivamos en lugar de rebotar
+        maquina_oculta = Maquinaria.objects.filter(patente__iexact=patente, activo=False).first()
+        if maquina_oculta:
+            for attr, val in validated_data.items():
+                setattr(maquina_oculta, attr, val)
+            maquina_oculta.activo = True
+            maquina_oculta.save()
+            return maquina_oculta
+
+        validated_data['activo'] = True
+        return super().create(validated_data)
+
 class OperadorSerializer(serializers.ModelSerializer):
-    # 'id_usuario' se mantiene como campo de solo lectura para no romper el front.
     id_usuario = serializers.PrimaryKeyRelatedField(source='usuario', read_only=True)
     nombre = serializers.CharField(source='usuario.nombre', read_only=True)
     apellido = serializers.CharField(source='usuario.apellido', read_only=True)
@@ -259,7 +303,6 @@ class OperadorSerializer(serializers.ModelSerializer):
     def get_licencia_url(self, obj):
         return obj.archivo_licencia.url if obj.archivo_licencia else ''
 
-    # --- datos de la cuenta de acceso (llegan como nombre / apellido / rut / password) ---
     def _datos(self):
         d = self.initial_data
         return {
@@ -335,8 +378,8 @@ class OperadorSerializer(serializers.ModelSerializer):
         usuario.save()
         
         validated_data['url_licencia'] = ''
+        validated_data['activo'] = True
 
-        # Si el RUT pertenecía a un operador dado de baja, se reactiva en vez de duplicarlo.
         operador = Operador.objects.filter(usuario=usuario).first()
         if operador:
             for campo, valor in validated_data.items():
@@ -365,11 +408,17 @@ class OperadorSerializer(serializers.ModelSerializer):
             usuario.save()
         return super().update(instance, validated_data)
 
+
 class MantenimientoSerializer(serializers.ModelSerializer):
     maquina_patente = serializers.CharField(source='id_maquina.patente', read_only=True)
     class Meta:
         model = Mantenimiento
         fields = '__all__'
+
+    def create(self, validated_data):
+        validated_data['activo'] = True
+        return super().create(validated_data)
+
 
 class ReportSerializer(serializers.ModelSerializer):
     maquina_patente = serializers.CharField(source='id_maquina.patente', read_only=True)
@@ -382,10 +431,8 @@ class ReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = Report
         fields = '__all__'
-        # Las horas siempre se calculan en el servidor a partir del horómetro.
         read_only_fields = ('horas_trabajadas',)
 
-    # --- datos derivados para las tablas (el front ya no inventa tarifas) ---
     def _tarifa(self, obj):
         if not obj.id_contrato_id:
             return None
@@ -439,7 +486,6 @@ class ReportSerializer(serializers.ModelSerializer):
         maquina = attrs.get('id_maquina', getattr(inst, 'id_maquina', None))
         fecha = attrs.get('fecha', getattr(inst, 'fecha', None))
 
-        # El parte diario siempre corresponde a un contrato y a una máquina de ese contrato.
         if inst is None and contrato is None:
             raise serializers.ValidationError({'id_contrato': 'Debe indicar el contrato al que corresponde el parte diario.'})
 
@@ -456,7 +502,6 @@ class ReportSerializer(serializers.ModelSerializer):
             ):
                 raise serializers.ValidationError({'id_contrato': f'El contrato «{nombre}» no está vigente en la fecha del parte.'})
 
-        # Continuidad del horómetro: el inicial debe ser el último registrado de la máquina.
         if inst is None and maquina is not None and abs(ini - maquina.horometro_actual) > 0.05:
             raise serializers.ValidationError({
                 'horometro_inicial': (
@@ -466,12 +511,17 @@ class ReportSerializer(serializers.ModelSerializer):
             })
 
         if fin <= ini:
-            raise serializers.ValidationError({"horometro_final": "El horómetro final debe ser estrictamente mayor al inicial."})
+            raise serializers.ValidationError({"horometro_final": "El horómetro final debe ser strictly mayor al inicial."})
         if (fin - ini) > 24:
             raise serializers.ValidationError({"horometro_final": "La jornada no puede superar las 24 horas continuas."})
         if not firmado:
             raise serializers.ValidationError({"firmado": "Es obligatorio contar con el V°B° / firma del supervisor en terreno."})
         return attrs
+
+    def create(self, validated_data):
+        validated_data['activo'] = True
+        return super().create(validated_data)
+
 
 class GastoSerializer(serializers.ModelSerializer):
     maquina_patente = serializers.CharField(source='id_maquina.patente', read_only=True)
@@ -508,14 +558,17 @@ class GastoSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
+        # Fuerza activa la casilla en la base de datos
+        validated_data['activo'] = True
+
         if not validated_data.get('id_usuario'):
-            # Respaldo: el primer usuario administrador activo (antes tomaba "el primero" sin importar el rol).
             admin_user = (
                 Usuarios.objects.filter(activo=True, id_rol__rol__icontains='admin').first()
                 or Usuarios.objects.filter(activo=True).first()
             )
             validated_data['id_usuario'] = admin_user
         return super().create(validated_data)
+
 
 class DocMaquinariaSerializer(serializers.ModelSerializer):
     maquina_patente = serializers.CharField(source='id_maquina.patente', read_only=True)
@@ -525,8 +578,6 @@ class DocMaquinariaSerializer(serializers.ModelSerializer):
 
     def validate_fecha_vencimiento(self, value):
         if self.instance is None and value < hoy_chile():
-            # Se acepta si es la misma fecha de un documento ya guardado de esa máquina
-            # (el formulario de edición vuelve a enviarla).
             try:
                 id_maq = int(self.initial_data.get('id_maquina'))
             except (TypeError, ValueError):
@@ -538,7 +589,16 @@ class DocMaquinariaSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError('La fecha de vencimiento no puede ser anterior a hoy.')
         return value
 
+    def create(self, validated_data):
+        validated_data['activo'] = True
+        return super().create(validated_data)
+
+
 class DocEmpresaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Doc_empresa
         fields = '__all__'
+
+    def create(self, validated_data):
+        validated_data['activo'] = True
+        return super().create(validated_data)

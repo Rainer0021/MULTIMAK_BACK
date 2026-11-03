@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Iniciar Sesión - Evaluación</title>
+</head>
+<body>
+    <h2>Iniciar Sesión (Django Nativo)</h2>
+    <p>Debes autenticarte para ver el panel de maquinarias.</p>
+    
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit">Ingresar</button>
+    </form>
+</body>
+</html>

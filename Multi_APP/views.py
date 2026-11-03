@@ -7,9 +7,12 @@ from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from django.contrib.auth.decorators import login_required
 
 from rest_framework import status, viewsets
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from collections import defaultdict
 from django.db.models import Sum, Avg, Count, Max, Q
@@ -31,10 +34,12 @@ from .serializers import (
 logger = logging.getLogger(__name__)
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class BaseSoftDeleteViewSet(viewsets.ModelViewSet):
     """
     ViewSet base que filtra los registros activos por defecto
     y ejecuta borrado lógico (activo=False) en lugar de DELETE físico.
+    Exento de verificación CSRF para peticiones AJAX.
     """
     def get_queryset(self):
         return self.queryset.filter(activo=True)
@@ -88,6 +93,9 @@ def _sincronizar_usuario_django(request, usuario_db, contraseña_plana):
 
 
 @api_view(['POST'])
+@csrf_exempt
+@authentication_classes([])
+@permission_classes([])
 def login_unificado(request):
     """
     Login único para Administrador, Contador y Operador.
@@ -326,7 +334,6 @@ class ContratoMaquinariaViewSet(viewsets.ModelViewSet):
     serializer_class = ContratoMaquinariaSerializer
 
 
-# Vistas nativas para la evaluación
 def login_evaluacion(request):
     if request.method == 'POST':
         form = AuthenticationForm(request, data=request.POST)
@@ -339,6 +346,7 @@ def login_evaluacion(request):
     return render(request, 'panel/login.html', {'form': form})
 
 
+@login_required(login_url='login_evaluacion')
 def logout_evaluacion(request):
     logout(request)
     return redirect('login_evaluacion')
@@ -356,11 +364,12 @@ def registro_evaluacion(request):
     return render(request, 'panel/registro.html', {'form': form})
 
 
+# Vista basada en clases (CBV) protegida con LoginRequiredMixin
 class MaquinariaListView(LoginRequiredMixin, ListView):
     model = Maquinaria
     template_name = 'panel/maquinaria_list.html'
     context_object_name = 'maquinarias'
-    login_url = 'login_evaluacion'
+    login_url = 'login_evaluacion'  # Redirige al login si no se ha iniciado sesión
 
     def get_queryset(self):
         return Maquinaria.objects.filter(activo=True)
