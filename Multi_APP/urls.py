@@ -40,4 +40,5 @@ urlpatterns = [
     path('panel/logout/', logout_evaluacion, name='logout_evaluacion'),
     path('panel/registro/', registro_evaluacion, name='registro_evaluacion'),
     path('panel/maquinarias/', MaquinariaListView.as_view(), name='panel_maquinarias'),
+    path('generar-url-s3/', generar_url_presignada, name='generar_url_s3'),
 ]

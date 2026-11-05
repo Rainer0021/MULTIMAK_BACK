@@ -1,6 +1,6 @@
 import hmac
 import logging
-
+import boto3
 from django.shortcuts import render, redirect
 from django.contrib.auth import login, logout
 from django.contrib.auth.models import User, Group
@@ -10,14 +10,18 @@ from django.views.generic import ListView
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.contrib.auth.decorators import login_required
+from botocore.exceptions import NoCredentialsError
 
+from django.conf import settings
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
+from rest_framework import status
 from collections import defaultdict
 from django.db.models import Sum, Avg, Count, Max, Q
 from django.db import transaction
 from django.contrib.auth.hashers import make_password, check_password
+import uuid
 
 from .models import (
     Maquinaria, Operador, Report, Usuarios, Gasto,
@@ -373,3 +377,49 @@ class MaquinariaListView(LoginRequiredMixin, ListView):
 
     def get_queryset(self):
         return Maquinaria.objects.filter(activo=True)
+
+@api_view(['POST'])
+@permission_classes()
+def generar_url_presignada(request):
+    """
+    Genera una URL presignada de S3 para que el cliente suba el archivo directamente.
+    """
+    nombre_archivo = request.data.get('nombre_archivo')
+    tipo_archivo = request.data.get('tipo_archivo', 'application/octet-stream')
+
+    if not nombre_archivo:
+        return Response({'error': 'Se requiere el nombre del archivo.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Limpiar y hacer único el nombre del archivo para evitar colisiones
+    extension = nombre_archivo.split('.')[-1]
+    nombre_unico = f"uploads/{uuid.uuid4()}.{extension}"
+
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_S3_REGION_NAME
+    )
+
+    try:
+        # Generar la URL con validez de 300 segundos (5 minutos)
+        presigned_url = s3_client.generate_presigned_url(
+            'put_object',
+            Params={
+                'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
+                'Key': nombre_unico,
+                'ContentType': tipo_archivo
+            },
+            ExpiresIn=300
+        )
+        
+        # URL final pública o interna con la que se accederá al archivo después de subirlo
+        url_archivo_final = f"https://{settings.AWS_STORAGE_BUCKET_NAME}.s3.{settings.AWS_S3_REGION_NAME}.amazonaws.com/{nombre_unico}"
+
+        return Response({
+            'upload_url': presigned_url,
+            'file_url': url_archivo_final
+        }, status=status.HTTP_200_OK)
+
+    except NoCredentialsError:
+        return Response({'error': 'Credenciales de AWS no configuradas correctamente.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
