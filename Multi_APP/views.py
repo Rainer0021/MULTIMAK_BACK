@@ -379,7 +379,6 @@ class MaquinariaListView(LoginRequiredMixin, ListView):
         return Maquinaria.objects.filter(activo=True)
 
 @api_view(['POST'])
-@permission_classes()
 def generar_url_presignada(request):
     """
     Genera una URL presignada de S3 para que el cliente suba el archivo directamente.

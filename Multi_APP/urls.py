@@ -5,7 +5,7 @@ from .views import (
     ReportViewSet, GastoViewSet, ClienteViewSet, ContratoViewSet,
     HESViewSet, FacturaViewSet, DocMaquinariaViewSet, DocEmpresaViewSet,
     ContratoMaquinariaViewSet, MantenimientoViewSet, contratos_para_operador,
-    login_evaluacion, logout_evaluacion, registro_evaluacion, MaquinariaListView
+    login_evaluacion, logout_evaluacion, registro_evaluacion, MaquinariaListView, generar_url_presignada
 )
 
 router = DefaultRouter()
