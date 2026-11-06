@@ -11,6 +11,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.contrib.auth.decorators import login_required
 from botocore.exceptions import NoCredentialsError
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from django.conf import settings
 from rest_framework import status, viewsets
@@ -101,21 +102,15 @@ def _sincronizar_usuario_django(request, usuario_db, contraseña_plana):
 @authentication_classes([])
 @permission_classes([])
 def login_unificado(request):
-    """
-    Login único para Administrador, Contador y Operador.
-    Sincroniza con django.contrib.auth y sus grupos/permisos nativos.
-    """
     try:
         data = request.data or {}
 
-        # 1. RUT y contraseña (acepta rut/username y contraseña/password)
         rut_recibido = _limpiar_rut(data.get('rut') or data.get('username'))
         contraseña_recibida = str(data.get('contraseña') or data.get('password') or '').strip()
 
         if not rut_recibido or not contraseña_recibida:
             return Response({'error': 'Debe ingresar RUT y contraseña.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 2. Buscar al usuario activo comparando el RUT sin puntos ni guion
         usuario_encontrado = None
         for u in Usuarios.objects.filter(activo=True).select_related('id_rol'):
             if _limpiar_rut(u.rut) == rut_recibido:
@@ -125,7 +120,6 @@ def login_unificado(request):
         if not usuario_encontrado:
             return Response({'error': 'RUT o contraseña incorrectos.'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        # 3. Validar contraseña (hash; o texto plano de cuentas antiguas)
         clave_bd = str(usuario_encontrado.contraseña or '').strip()
         es_hash_valido = check_password(contraseña_recibida, clave_bd)
         es_texto_plano = hmac.compare_digest(clave_bd.encode('utf-8'), contraseña_recibida.encode('utf-8'))
@@ -133,15 +127,15 @@ def login_unificado(request):
         if not (es_hash_valido or es_texto_plano):
             return Response({'error': 'RUT o contraseña incorrectos.'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        # Cuentas antiguas con clave en texto plano: se convierten a hash al ingresar.
         if es_texto_plano and not es_hash_valido:
             usuario_encontrado.set_password(contraseña_recibida)
             usuario_encontrado.save(update_fields=['contraseña'])
 
-        # 4. INTEGRACIÓN NATIVA: Sincronizar usuario con django.contrib.auth y asignarle su Grupo
-        _sincronizar_usuario_django(request._request, usuario_encontrado, contraseña_recibida)
+        user_django = _sincronizar_usuario_django(request._request, usuario_encontrado, contraseña_recibida)
 
-        # 5. Rol y datos de operador para la respuesta de React
+        # GENERACIÓN DEL TOKEN JWT
+        refresh = RefreshToken.for_user(user_django)
+
         rol_nombre = str(usuario_encontrado.id_rol.rol) if usuario_encontrado.id_rol else ''
         id_operador = None
         tipo_licencia = None
@@ -152,9 +146,10 @@ def login_unificado(request):
                 id_operador = op.pk
                 tipo_licencia = op.TipoLicencia
 
-        # 6. Respuesta para React
         return Response({
             'mensaje': 'Acceso autorizado',
+            'access': str(refresh.access_token),  # Token de acceso
+            'refresh': str(refresh),              # Token de refresco
             'id_usuario': usuario_encontrado.pk,
             'rut': usuario_encontrado.rut,
             'nombre': f"{usuario_encontrado.nombre} {usuario_encontrado.apellido}".strip(),
