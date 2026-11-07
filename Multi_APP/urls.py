@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    login_unificado, resumen_kpis, MaquinariaViewSet, OperadorViewSet,
+    generar_url_lectura, login_unificado, resumen_kpis, MaquinariaViewSet, OperadorViewSet,
     ReportViewSet, GastoViewSet, ClienteViewSet, ContratoViewSet,
     HESViewSet, FacturaViewSet, DocMaquinariaViewSet, DocEmpresaViewSet,
     ContratoMaquinariaViewSet, MantenimientoViewSet, contratos_para_operador,
@@ -41,4 +41,5 @@ urlpatterns = [
     path('panel/registro/', registro_evaluacion, name='registro_evaluacion'),
     path('panel/maquinarias/', MaquinariaListView.as_view(), name='panel_maquinarias'),
     path('generar-url-s3/', generar_url_presignada, name='generar_url_s3'),
+    path('generar-url-lectura/', generar_url_lectura, name='generar_url_lectura'),
 ]
