@@ -6,3 +6,4 @@ dj-database-url>=2.1.0
 django-cors-headers
 dotenv
 boto3
+djangorestframework-simplejwt
