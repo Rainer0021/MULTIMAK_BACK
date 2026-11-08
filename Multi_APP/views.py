@@ -3,7 +3,9 @@ import logging
 import boto3
 import urllib.parse
 from django.shortcuts import render, redirect
-from django.contrib.auth import login, logout
+from django.contrib.auth import login, logout, authenticate
+from django.core import signing
+from django.http import HttpResponseRedirect, HttpResponseForbidden
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -98,6 +100,51 @@ def _sincronizar_usuario_django(request, usuario_db, contraseña_plana):
     return user_django
 
 
+def _login_superusuario(identificador, contraseña):
+    """
+    Si es un superusuario de Django (el de /admin) con clave correcta,
+    devuelve la respuesta de login con un token de un solo uso (60 s)
+    para entrar al panel /admin/ sin volver a escribir la clave.
+    """
+    candidatos = {str(identificador or '').strip(), _limpiar_rut(identificador)}
+    candidatos.discard('')
+
+    su = None
+    for c in candidatos:
+        su = User.objects.filter(username__iexact=c, is_superuser=True, is_staff=True, is_active=True).first()
+        if su:
+            break
+    if not su:
+        return None
+
+    su = authenticate(username=su.username, password=contraseña)
+    if not su:
+        return None
+
+    return {
+        'mensaje': 'Acceso autorizado',
+        'es_superusuario': True,
+        'admin_sso_token': signing.dumps({'uid': su.pk}, salt='admin-sso'),
+    }
+
+
+@csrf_exempt
+def admin_sso(request):
+    """Recibe el token del login, abre la sesión de Django y redirige a /admin/."""
+    token = request.GET.get('t', '')
+    try:
+        uid = signing.loads(token, salt='admin-sso', max_age=60)['uid']
+    except signing.BadSignature:
+        return HttpResponseForbidden('Enlace inválido o expirado. Vuelve a iniciar sesión.')
+
+    user = User.objects.filter(pk=uid, is_superuser=True, is_staff=True, is_active=True).first()
+    if not user:
+        return HttpResponseForbidden('Usuario no autorizado.')
+
+    login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+    return HttpResponseRedirect('/admin/')
+
+
 @api_view(['POST'])
 @csrf_exempt
 @authentication_classes([])
@@ -111,6 +158,10 @@ def login_unificado(request):
 
         if not rut_recibido or not contraseña_recibida:
             return Response({'error': 'Debe ingresar RUT y contraseña.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        respuesta_super = _login_superusuario(data.get('rut') or data.get('username'), contraseña_recibida)
+        if respuesta_super:
+            return Response(respuesta_super, status=status.HTTP_200_OK)
 
         usuario_encontrado = None
         for u in Usuarios.objects.filter(activo=True).select_related('id_rol'):

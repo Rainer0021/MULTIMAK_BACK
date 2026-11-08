@@ -74,7 +74,7 @@ CORS_ALLOWED_ORIGINS = [
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -124,6 +124,12 @@ DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 CORS_ALLOW_CREDENTIALS = True
+
+# Dirección de la página React (a donde vuelve el superusuario al cerrar sesión en /admin/)
+FRONTEND_URL = os.environ.get(
+    'FRONTEND_URL',
+    'http://localhost:5173' if DEBUG else 'https://multimak.vercel.app',
+)
 
 # CONFIGURACIÓN DE DRF PARA EVITAR BLOQUEOS CSRF EN VISTAS API
 REST_FRAMEWORK = {

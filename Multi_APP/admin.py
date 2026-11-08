@@ -1,9 +1,15 @@
 from django.contrib import admin
+from django.conf import settings
 from .models import (
     Rol, Usuarios, Operador, Cliente, Maquinaria, 
     Contrato, HES, Factura, Mantenimiento, Report, 
     Gasto, Doc_Maquinaria, Doc_empresa, ContratoMaquinaria
 )
+
+admin.site.site_header = 'MULTIMAK 360'
+admin.site.site_title = 'MULTIMAK 360'
+admin.site.index_title = 'Panel de administración'
+admin.site.site_url = settings.FRONTEND_URL  # el enlace "Ver el sitio" lleva a la página React
 
 @admin.register(Rol)
 class RolAdmin(admin.ModelAdmin):
