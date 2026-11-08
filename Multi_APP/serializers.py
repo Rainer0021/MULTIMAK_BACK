@@ -301,7 +301,7 @@ class OperadorSerializer(serializers.ModelSerializer):
         }
 
     def get_licencia_url(self, obj):
-        return obj.archivo_licencia.url if obj.archivo_licencia else ''
+        return obj.archivo_licencia or obj.url_licencia or ''
 
     def _datos(self):
         d = self.initial_data

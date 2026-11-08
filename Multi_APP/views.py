@@ -1,6 +1,7 @@
 import hmac
 import logging
 import boto3
+import urllib.parse
 from django.shortcuts import render, redirect
 from django.contrib.auth import login, logout
 from django.contrib.auth.models import User, Group
@@ -417,3 +418,47 @@ def generar_url_presignada(request):
 
     except NoCredentialsError:
         return Response({'error': 'Credenciales de AWS no configuradas correctamente.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    import urllib.parse
+
+@api_view(['POST'])
+def generar_url_lectura(request):
+    """
+    Recibe la URL pública guardada en la base de datos y genera
+    una URL temporal (Presigned GET) para leer el archivo privado.
+    """
+    url_archivo = request.data.get('url_archivo')
+    
+    if not url_archivo:
+        return Response({'error': 'URL no proporcionada'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Solo procesamos si es una URL de Amazon S3
+    if 'amazonaws.com' not in url_archivo:
+        return Response({'url_lectura': url_archivo}, status=status.HTTP_200_OK)
+
+    try:
+        # Extraemos el "Key" (la ruta interna) de la URL
+        # Ej: de "https://bucket.s3.../uploads/archivo.pdf" extrae "uploads/archivo.pdf"
+        parsed_url = urllib.parse.urlparse(url_archivo)
+        key = parsed_url.path.lstrip('/') 
+        
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME
+        )
+        
+        # Generar URL de lectura (GET) por 5 minutos (300 segundos)
+        presigned_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={
+                'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
+                'Key': key
+            },
+            ExpiresIn=300
+        )
+        
+        return Response({'url_lectura': presigned_url}, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

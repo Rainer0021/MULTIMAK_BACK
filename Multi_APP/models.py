@@ -40,8 +40,8 @@ class Operador(models.Model):
     usuario = models.OneToOneField('Usuarios', on_delete=models.CASCADE, db_column='id_usuario', null=True, blank=True)
     TipoLicencia = models.CharField(max_length=100, blank=True, null=True)
     fecha_vencimiento_licencia = models.DateField(blank=True, null=True)
-    archivo_licencia = models.FileField(upload_to='licencias/', null=True, blank=True)
-    url_licencia = models.CharField(max_length=255, blank=True, default='')
+    archivo_licencia = models.URLField(max_length=500, null=True, blank=True) # URL directa de S3
+    url_licencia = models.URLField(max_length=500, blank=True, default='')
     activo = models.BooleanField(default=True)
 
     class Meta:
