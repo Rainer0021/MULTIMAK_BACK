@@ -18,6 +18,22 @@ def hoy_chile():
     return datetime.now(ZoneInfo('America/Punta_Arenas')).date()
 
 
+MENSAJE_CLAVE_SEGURA = (
+    'La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número o símbolo.'
+)
+
+
+def clave_es_segura(clave):
+    """Mínimo 8 caracteres, con mayúscula, minúscula y al menos un número o símbolo."""
+    clave = str(clave or '')
+    return (
+        len(clave) >= 8
+        and re.search(r'[A-ZÁÉÍÓÚÑÜ]', clave) is not None
+        and re.search(r'[a-záéíóúñü]', clave) is not None
+        and re.search(r'[^A-Za-zÁÉÍÓÚÑÜáéíóúñü]', clave) is not None
+    )
+
+
 def _fmt(fecha):
     return fecha.strftime('%d-%m-%Y') if fecha else 'sin término'
 
@@ -353,10 +369,22 @@ class OperadorSerializer(serializers.ModelSerializer):
                 errores['nombre'] = 'Ingrese el nombre del operador.'
             if not datos['apellido']:
                 errores['apellido'] = 'Ingrese el apellido del operador.'
-            if len(datos['password']) < 6:
-                errores['password'] = 'La contraseña debe tener al menos 6 caracteres.'
-        elif datos['password'] and len(datos['password']) < 6:
-            errores['password'] = 'La contraseña debe tener al menos 6 caracteres.'
+            if not clave_es_segura(datos['password']):
+                errores['password'] = MENSAJE_CLAVE_SEGURA
+        elif datos['password'] and not clave_es_segura(datos['password']):
+            errores['password'] = MENSAJE_CLAVE_SEGURA
+
+        # Datos de la licencia: obligatorios al registrar; al editar no se pueden dejar en blanco
+        campos_licencia = (
+            ('TipoLicencia', 'Selecciona al menos un tipo de licencia.'),
+            ('fecha_vencimiento_licencia', 'Ingresa la fecha de vencimiento de la licencia.'),
+            ('archivo_licencia', 'Adjunta el documento de la licencia.'),
+        )
+        for campo, mensaje in campos_licencia:
+            if creando or campo in attrs:
+                valor = attrs.get(campo)
+                if valor is None or (isinstance(valor, str) and not valor.strip()):
+                    errores[campo] = mensaje
 
         if errores:
             raise serializers.ValidationError(errores)
@@ -375,6 +403,7 @@ class OperadorSerializer(serializers.ModelSerializer):
         usuario.apellido = datos['apellido']
         usuario.activo = True
         usuario.set_password(datos['password'])
+        usuario.debe_cambiar_clave = True  # la clave la define el administrador: debe cambiarla al ingresar
         usuario.save()
         
         validated_data['url_licencia'] = ''
@@ -405,6 +434,7 @@ class OperadorSerializer(serializers.ModelSerializer):
                 usuario.rut = formatear_rut(datos['rut'])
             if datos['password']:
                 usuario.set_password(datos['password'])
+                usuario.debe_cambiar_clave = True  # clave restablecida por el administrador
             usuario.save()
         return super().update(instance, validated_data)
 

@@ -17,7 +17,7 @@ class RolAdmin(admin.ModelAdmin):
 
 @admin.register(Usuarios)
 class UsuariosAdmin(admin.ModelAdmin):
-    list_display = ('id_usuario', 'rut', 'nombre', 'apellido', 'id_rol', 'estado_login', 'activo')
+    list_display = ('id_usuario', 'rut', 'nombre', 'apellido', 'id_rol', 'estado_login', 'debe_cambiar_clave', 'activo')
 
 @admin.register(Operador)
 class OperadorAdmin(admin.ModelAdmin):

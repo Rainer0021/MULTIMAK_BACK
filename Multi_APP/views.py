@@ -36,7 +36,8 @@ from .serializers import (
     MaquinariaSerializer, OperadorSerializer, ReportSerializer, GastoSerializer,
     ClienteSerializer, ContratoSerializer, ContratoMaquinariaSerializer,
     HESSerializer, FacturaSerializer, DocMaquinariaSerializer, DocEmpresaSerializer,
-    MantenimientoSerializer, hoy_chile, ESTADOS_CONTRATO_VIGENTES, normalizar_estado_maquina
+    MantenimientoSerializer, hoy_chile, ESTADOS_CONTRATO_VIGENTES, normalizar_estado_maquina,
+    clave_es_segura, MENSAJE_CLAVE_SEGURA
 )
 
 logger = logging.getLogger(__name__)
@@ -183,6 +184,15 @@ def login_unificado(request):
             usuario_encontrado.set_password(contraseña_recibida)
             usuario_encontrado.save(update_fields=['contraseña'])
 
+        # Primer ingreso (o clave restablecida): NO se entrega token hasta que elija una clave nueva
+        if usuario_encontrado.debe_cambiar_clave:
+            return Response({
+                'mensaje': 'Debes cambiar tu contraseña antes de continuar.',
+                'debe_cambiar_clave': True,
+                'rut': usuario_encontrado.rut,
+                'nombre': f"{usuario_encontrado.nombre} {usuario_encontrado.apellido}".strip(),
+            }, status=status.HTTP_200_OK)
+
         user_django = _sincronizar_usuario_django(request._request, usuario_encontrado, contraseña_recibida)
 
         # GENERACIÓN DEL TOKEN JWT
@@ -212,6 +222,65 @@ def login_unificado(request):
 
     except Exception:
         logger.exception('Error en login_unificado')
+        return Response(
+            {'error': 'Error interno del servidor. Intenta nuevamente en unos minutos.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+def _clave_correcta(usuario, clave):
+    """Misma verificación del login: clave con hash o (clave antigua) en texto plano."""
+    clave_bd = str(usuario.contraseña or '').strip()
+    return check_password(clave, clave_bd) or hmac.compare_digest(clave_bd.encode('utf-8'), clave.encode('utf-8'))
+
+
+@api_view(['POST'])
+@csrf_exempt
+@authentication_classes([])
+@permission_classes([])
+def cambiar_clave_inicial(request):
+    """
+    Cambio obligatorio de contraseña en el primer ingreso.
+    Recibe rut + contraseña_actual + contraseña_nueva. Solo funciona si la cuenta tiene
+    la marca 'debe_cambiar_clave'. No entrega token: después se inicia sesión normalmente.
+    """
+    try:
+        data = request.data or {}
+        rut_recibido = _limpiar_rut(data.get('rut'))
+        clave_actual = str(data.get('contraseña_actual') or '').strip()
+        clave_nueva = str(data.get('contraseña_nueva') or '').strip()
+
+        if not rut_recibido or not clave_actual or not clave_nueva:
+            return Response({'error': 'Completa todos los campos.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        usuario = None
+        for u in Usuarios.objects.filter(activo=True):
+            if _limpiar_rut(u.rut) == rut_recibido:
+                usuario = u
+                break
+
+        if not usuario or not _clave_correcta(usuario, clave_actual):
+            return Response({'error': 'RUT o contraseña actual incorrectos.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not usuario.debe_cambiar_clave:
+            return Response({'error': 'Esta cuenta no tiene un cambio de contraseña pendiente.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        if not clave_es_segura(clave_nueva):
+            return Response({'error': MENSAJE_CLAVE_SEGURA}, status=status.HTTP_400_BAD_REQUEST)
+
+        if clave_nueva == clave_actual:
+            return Response({'error': 'La nueva contraseña debe ser distinta de la actual.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        usuario.set_password(clave_nueva)
+        usuario.debe_cambiar_clave = False
+        usuario.save(update_fields=['contraseña', 'debe_cambiar_clave'])
+
+        return Response({'mensaje': 'Contraseña actualizada correctamente.'}, status=status.HTTP_200_OK)
+
+    except Exception:
+        logger.exception('Error en cambiar_clave_inicial')
         return Response(
             {'error': 'Error interno del servidor. Intenta nuevamente en unos minutos.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,

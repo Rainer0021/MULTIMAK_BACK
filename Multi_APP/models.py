@@ -20,6 +20,8 @@ class Usuarios(models.Model):
     apellido = models.CharField(max_length=255)
     contraseña = models.CharField(max_length=255)
     estado_login = models.BooleanField(default=False)
+    # True = en su próximo ingreso debe elegir una contraseña nueva (operador recién creado o clave restablecida)
+    debe_cambiar_clave = models.BooleanField(default=False)
     activo = models.BooleanField(default=True)
 
     class Meta:

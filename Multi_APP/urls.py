@@ -5,7 +5,7 @@ from .views import (
     ReportViewSet, GastoViewSet, ClienteViewSet, ContratoViewSet,
     HESViewSet, FacturaViewSet, DocMaquinariaViewSet, DocEmpresaViewSet,
     ContratoMaquinariaViewSet, MantenimientoViewSet, contratos_para_operador,
-    login_evaluacion, logout_evaluacion, registro_evaluacion, MaquinariaListView, generar_url_presignada, admin_sso
+    login_evaluacion, logout_evaluacion, registro_evaluacion, MaquinariaListView, generar_url_presignada, admin_sso, cambiar_clave_inicial
 )
 
 router = DefaultRouter()
@@ -32,6 +32,7 @@ urlpatterns = [
     path('login-operador/', login_unificado, name='login_operador'),
     path('login-operador', login_unificado),
     
+    path('cambiar-clave-inicial/', cambiar_clave_inicial, name='cambiar_clave_inicial'),
     path('admin-sso/', admin_sso, name='admin_sso'),
     path('resumen-kpis/', resumen_kpis, name='resumen_kpis'),
     path('contratos-operador/', contratos_para_operador, name='contratos_operador'),
