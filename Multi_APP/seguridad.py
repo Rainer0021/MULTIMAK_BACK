@@ -8,7 +8,6 @@ ADMIN, CONTADOR, OPERADOR = 'administrador', 'contador', 'operador'
 
 
 def limpiar_rut(valor):
-    """'12.345.678-k' -> '12345678K'"""
     return str(valor or '').strip().replace('.', '').replace('-', '').replace(' ', '').upper()
 
 
@@ -38,7 +37,6 @@ def es_solo_operador(request):
 
 
 def usuario_negocio(request):
-    """Fila de la tabla Usuarios del usuario autenticado (su username es el RUT sin puntos ni guion)."""
     if hasattr(request, '_usuario_negocio'):
         return request._usuario_negocio
     rut = limpiar_rut(request.user.username)
@@ -57,12 +55,6 @@ def operador_de(request):
 
 
 class PermisoPorRol(BasePermission):
-    """
-    Cada ViewSet declara:
-        roles_lectura   = ('contador', ...)   # quién puede GET
-        roles_escritura = ('contador', ...)   # quién puede POST / PUT / PATCH / DELETE
-    El Administrador siempre pasa. Lo que no se declara queda solo para el Administrador.
-    """
     message = 'No tienes permiso para realizar esta acción.'
 
     def has_permission(self, request, view):
@@ -81,7 +73,6 @@ class PermisoPorRol(BasePermission):
 
 
 def solo_roles(*permitidos):
-    """Para vistas de función: solo_roles() = solo Administrador; solo_roles('operador') = Operador y Administrador."""
     class _Permiso(BasePermission):
         message = 'No tienes permiso para realizar esta acción.'
 

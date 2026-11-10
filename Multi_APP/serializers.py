@@ -14,7 +14,6 @@ ESTADOS_CONTRATO_VIGENTES = ('ACTIVO', 'PRORROGADO')
 
 
 def hoy_chile():
-    """Fecha de hoy en hora de Chile (Magallanes), no en UTC."""
     return datetime.now(ZoneInfo('America/Punta_Arenas')).date()
 
 
@@ -24,7 +23,6 @@ MENSAJE_CLAVE_SEGURA = (
 
 
 def clave_es_segura(clave):
-    """Mínimo 8 caracteres, con mayúscula, minúscula y al menos un número o símbolo."""
     clave = str(clave or '')
     return (
         len(clave) >= 8
@@ -39,12 +37,10 @@ def _fmt(fecha):
 
 
 def normalizar_rut(texto):
-    """Deja solo dígitos y K en mayúscula (sin puntos ni guion)."""
     return re.sub(r'[^0-9kK]', '', str(texto or '')).upper()
 
 
 def formatear_rut(texto):
-    """12345678K -> 12.345.678-K"""
     limpio = normalizar_rut(texto)
     if len(limpio) < 2:
         return limpio
@@ -76,13 +72,11 @@ ESTADOS_MAQUINA = {
 
 
 def normalizar_estado_maquina(valor):
-    """Unifica los estados (antes el front guardaba 'En Taller' y el back 'EN TALLER')."""
     clave = str(valor or '').strip().upper()
     return ESTADOS_MAQUINA.get(clave, clave or 'OPERATIVA')
 
 
 def telefono_cl_valido(texto):
-    """Móvil: 9 dígitos que empiezan con 9. Fijo: 9 dígitos que empiezan con 2 a 7. Acepta +56."""
     d = re.sub(r'\D', '', texto or '')
     if len(d) == 11 and d.startswith('56'):
         d = d[2:]
@@ -92,7 +86,6 @@ def telefono_cl_valido(texto):
 
 
 def buscar_choque_maquina(id_maquina, inicio, fin, excluir_contrato=None):
-    """Devuelve el contrato vigente que ya usa esa máquina en el período indicado (o None)."""
     relaciones = ContratoMaquinaria.objects.filter(
         id_maquina=id_maquina,
         id_contrato__activo=True,
@@ -269,7 +262,6 @@ class MaquinariaSerializer(serializers.ModelSerializer):
 
     def validate_patente(self, value):
         patente_limpia = str(value or '').strip().upper()
-        # Buscar si ya existe la patente activa en la base de datos
         existente = Maquinaria.objects.filter(patente__iexact=patente_limpia, activo=True)
         if self.instance:
             existente = existente.exclude(pk=self.instance.pk)

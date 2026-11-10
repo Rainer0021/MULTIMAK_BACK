@@ -72,7 +72,6 @@ def _limpiar_rut(valor):
 def _sincronizar_usuario_django(request, usuario_db, contraseña_plana):
     username_rut = _limpiar_rut(usuario_db.rut)
     
-    # 1. Obtener o crear el usuario nativo de Django
     user_django, _ = User.objects.get_or_create(username=username_rut)
     user_django.first_name = usuario_db.nombre or ''
     user_django.last_name = usuario_db.apellido or ''
@@ -84,7 +83,7 @@ def _sincronizar_usuario_django(request, usuario_db, contraseña_plana):
     if 'admin' in rol_nombre.lower():
         grupo, _ = Group.objects.get_or_create(name='Administrador')
         user_django.groups.add(grupo)
-        user_django.is_staff = True  # Otorga acceso al panel /admin/
+        user_django.is_staff = True  
     elif 'operador' in rol_nombre.lower():
         grupo, _ = Group.objects.get_or_create(name='Operador')
         user_django.groups.add(grupo)
@@ -96,7 +95,6 @@ def _sincronizar_usuario_django(request, usuario_db, contraseña_plana):
 
     user_django.save()
     
-    # 3. Iniciar sesión nativa de Django
     login(request, user_django)
     return user_django
 
@@ -215,7 +213,6 @@ def login_unificado(request):
             {'error': 'Error interno del servidor. Intenta nuevamente en unos minutos.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
-
 
 def _clave_correcta(usuario, clave):
     """Verifica la clave contra el hash guardado."""
@@ -380,7 +377,6 @@ class ReportViewSet(BaseSoftDeleteViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         if es_solo_operador(self.request):
-            # Un operador solo ve SUS partes, aunque pida otro id_operador por la URL.
             op = operador_de(self.request)
             return qs.filter(id_operador=op) if op else qs.none()
         id_operador = self.request.query_params.get('id_operador')
@@ -396,7 +392,7 @@ class ReportViewSet(BaseSoftDeleteViewSet):
         horas_calculadas = max(0.0, round(horometro_final - horometro_inicial, 1))
         extra = {}
         if es_solo_operador(self.request):
-            # El parte siempre queda a nombre del operador que inició sesión (no se puede registrar a nombre de otro).
+            # El parte siempre queda a nombre del operador que inició sesión
             op = operador_de(self.request)
             if op is None:
                 raise PermissionDenied('Tu cuenta no está asociada a un operador.')
@@ -514,9 +510,6 @@ class MaquinariaListView(LoginRequiredMixin, ListView):
 
 @api_view(['POST'])
 def generar_url_presignada(request):
-    """
-    Genera una URL presignada de S3 para que el cliente suba el archivo directamente.
-    """
     nombre_archivo = request.data.get('nombre_archivo')
     tipo_archivo = request.data.get('tipo_archivo', 'application/octet-stream')
 
@@ -557,10 +550,6 @@ def generar_url_presignada(request):
 
 @api_view(['POST'])
 def generar_url_lectura(request):
-    """
-    Recibe la URL pública guardada en la base de datos y genera
-    una URL temporal (Presigned GET) para leer el archivo privado.
-    """
     url_archivo = request.data.get('url_archivo')
     
     if not url_archivo:
