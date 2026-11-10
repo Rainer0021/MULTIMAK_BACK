@@ -196,6 +196,7 @@ class Report(models.Model):
     firmado = models.BooleanField(default=False)
     combustible_litros = models.FloatField(default=0.0)
     activo = models.BooleanField(default=True)
+    url_firma = models.URLField(max_length=500, blank=True, null=True)
 
     class Meta:
         db_table = 'Report'
