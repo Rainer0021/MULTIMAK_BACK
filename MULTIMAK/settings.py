@@ -61,7 +61,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://54.89.70.36",
-    "http://multimakspa.duckdns.org",
+    "https://www.multimak-360.xyz",
     "https://multimakspa.duckdns.org",
 ]
 
