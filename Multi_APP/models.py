@@ -7,6 +7,8 @@ class Rol(models.Model):
 
     class Meta:
         db_table = 'Rol'
+        verbose_name = 'Rol'
+        verbose_name_plural = 'Roles'
 
     def __str__(self):
         return self.rol
@@ -20,12 +22,13 @@ class Usuarios(models.Model):
     apellido = models.CharField(max_length=255)
     contraseña = models.CharField(max_length=255)
     estado_login = models.BooleanField(default=False)
-    # True = en su próximo ingreso debe elegir una contraseña nueva (operador recién creado o clave restablecida)
     debe_cambiar_clave = models.BooleanField(default=False)
     activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'Usuarios'
+        verbose_name = 'Usuario'
+        verbose_name_plural = 'Usuarios'
 
     def set_password(self, raw_password):
         self.contraseña = make_password(raw_password)
@@ -48,6 +51,8 @@ class Operador(models.Model):
 
     class Meta:
         db_table = 'Operador'
+        verbose_name = 'Operador'
+        verbose_name_plural = 'Operadores'
 
     def __str__(self):
         if self.usuario:
@@ -55,7 +60,6 @@ class Operador(models.Model):
         return f"Operador #{self.id_operador}"
 
     def delete(self, *args, **kwargs):
-        # Borrado lógico: desactiva al operador y también a su usuario (para que no pueda entrar).
         self.activo = False
         if self.usuario:
             self.usuario.activo = False
@@ -74,6 +78,8 @@ class Cliente(models.Model):
 
     class Meta:
         db_table = 'Cliente'
+        verbose_name = 'Cliente'
+        verbose_name_plural = 'Clientes'
 
     def __str__(self):
         return self.razon_social
@@ -91,6 +97,8 @@ class Maquinaria(models.Model):
 
     class Meta:
         db_table = 'Maquinaria'
+        verbose_name = 'Maquinaria'
+        verbose_name_plural = 'Maquinarias'
 
     def __str__(self):
         return f"[{self.patente}] {self.tipo} {self.marca}"
@@ -107,6 +115,8 @@ class Contrato(models.Model):
 
     class Meta:
         db_table = 'Contrato'
+        verbose_name = 'Contrato'
+        verbose_name_plural = 'Contratos'
 
     def __str__(self):
         cliente_nombre = self.id_cliente.razon_social if self.id_cliente else "Sin Cliente"
@@ -125,6 +135,8 @@ class HES(models.Model):
 
     class Meta:
         db_table = 'HES'
+        verbose_name = 'HES'
+        verbose_name_plural = 'HES'
 
     def __str__(self):
         return f"HES #{self.numero_hes} ({self.estado})"
@@ -143,6 +155,8 @@ class Factura(models.Model):
 
     class Meta:
         db_table = 'Factura'
+        verbose_name = 'Factura'
+        verbose_name_plural = 'Facturas'
 
     def __str__(self):
         return f"Factura #{self.folio} - HES #{self.id_hes.numero_hes}"
@@ -160,6 +174,8 @@ class Mantenimiento(models.Model):
 
     class Meta:
         db_table = 'Mantenimiento'
+        verbose_name = 'Mantenimiento'
+        verbose_name_plural = 'Mantenimientos'
 
     def __str__(self):
         return f"{self.tipo_mantencion} - {self.id_maquina.patente} ({self.fecha_mantencion})"
@@ -183,6 +199,8 @@ class Report(models.Model):
 
     class Meta:
         db_table = 'Report'
+        verbose_name = 'Parte diario'
+        verbose_name_plural = 'Partes diarios'
 
 
 class Gasto(models.Model):
@@ -201,6 +219,8 @@ class Gasto(models.Model):
 
     class Meta:
         db_table = 'Gasto'
+        verbose_name = 'Gasto'
+        verbose_name_plural = 'Gastos'
 
 
 class Doc_Maquinaria(models.Model):
@@ -217,6 +237,8 @@ class Doc_Maquinaria(models.Model):
 
     class Meta:
         db_table = 'Doc_Maquinaria'
+        verbose_name = 'Documento de maquinaria'
+        verbose_name_plural = 'Documentos de maquinaria'
 
 
 class Doc_empresa(models.Model):
@@ -230,6 +252,8 @@ class Doc_empresa(models.Model):
 
     class Meta:
         db_table = 'Doc_empresa'
+        verbose_name = 'Documento de empresa'
+        verbose_name_plural = 'Documentos de empresa'
 
 
 class ContratoMaquinaria(models.Model):
@@ -240,6 +264,8 @@ class ContratoMaquinaria(models.Model):
 
     class Meta:
         db_table = 'Contrato_Maquinaria'
+        verbose_name = 'Maquinaria de contrato'
+        verbose_name_plural = 'Maquinarias de contrato'
 
     def __str__(self):
         return f"Contrato #{self.id_contrato.id_contrato} - Maquina #{self.id_maquina.id_maquina}"

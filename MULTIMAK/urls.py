@@ -26,5 +26,5 @@ urlpatterns = [
     path('api/', include('Multi_APP.urls')),
 ]
 
-# Archivos subidos (comprobantes, licencias). En producción conviene servirlos con nginx desde MEDIA_ROOT.
+# Archivos subidos
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.conf import settings
+from django.contrib.auth.hashers import identify_hasher
 from .models import (
     Rol, Usuarios, Operador, Cliente, Maquinaria, 
     Contrato, HES, Factura, Mantenimiento, Report, 
@@ -9,7 +10,7 @@ from .models import (
 admin.site.site_header = 'MULTIMAK 360'
 admin.site.site_title = 'MULTIMAK 360'
 admin.site.index_title = 'Panel de administración'
-admin.site.site_url = settings.FRONTEND_URL  # el enlace "Ver el sitio" lleva a la página React
+admin.site.site_url = settings.FRONTEND_URL  
 
 @admin.register(Rol)
 class RolAdmin(admin.ModelAdmin):
@@ -18,6 +19,13 @@ class RolAdmin(admin.ModelAdmin):
 @admin.register(Usuarios)
 class UsuariosAdmin(admin.ModelAdmin):
     list_display = ('id_usuario', 'rut', 'nombre', 'apellido', 'id_rol', 'estado_login', 'debe_cambiar_clave', 'activo')
+
+    def save_model(self, request, obj, form, change):
+        try:
+            identify_hasher(obj.contraseña)
+        except ValueError:
+            obj.set_password(obj.contraseña)
+        super().save_model(request, obj, form, change)
 
 @admin.register(Operador)
 class OperadorAdmin(admin.ModelAdmin):

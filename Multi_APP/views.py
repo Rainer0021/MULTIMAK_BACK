@@ -18,7 +18,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from django.conf import settings
 from rest_framework import status, viewsets
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework import status
 from collections import defaultdict
@@ -40,16 +41,20 @@ from .serializers import (
     clave_es_segura, MENSAJE_CLAVE_SEGURA
 )
 
+from .seguridad import (
+    PermisoPorRol, solo_roles, es_solo_operador, operador_de,
+    LoginIPThrottle, LoginRutThrottle, CambioClaveIPThrottle, CambioClaveRutThrottle,
+)
+
 logger = logging.getLogger(__name__)
 
 
 @method_decorator(csrf_exempt, name='dispatch')
 class BaseSoftDeleteViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet base que filtra los registros activos por defecto
-    y ejecuta borrado lógico (activo=False) en lugar de DELETE físico.
-    Exento de verificación CSRF para peticiones AJAX.
-    """
+    permission_classes = [PermisoPorRol]
+    roles_lectura = ()     
+    roles_escritura = ()  
+
     def get_queryset(self):
         return self.queryset.filter(activo=True)
 
@@ -61,15 +66,10 @@ class BaseSoftDeleteViewSet(viewsets.ModelViewSet):
 
 
 def _limpiar_rut(valor):
-    """'12.345.678-k' -> '12345678K' (para comparar sin importar el formato)."""
     return str(valor or '').strip().replace('.', '').replace('-', '').replace(' ', '').upper()
 
 
 def _sincronizar_usuario_django(request, usuario_db, contraseña_plana):
-    """
-    Sincroniza el usuario de la tabla propia 'Usuarios' con la tabla nativa de Django 'auth_user'.
-    Asigna automáticamente los grupos nativos (auth_group) según su Rol en el negocio.
-    """
     username_rut = _limpiar_rut(usuario_db.rut)
     
     # 1. Obtener o crear el usuario nativo de Django
@@ -77,8 +77,8 @@ def _sincronizar_usuario_django(request, usuario_db, contraseña_plana):
     user_django.first_name = usuario_db.nombre or ''
     user_django.last_name = usuario_db.apellido or ''
     user_django.set_password(contraseña_plana)
+    user_django.groups.clear()  
     
-    # 2. Determinar el rol y asignar Grupo nativo de Django
     rol_nombre = str(usuario_db.id_rol.rol).strip() if usuario_db.id_rol else ''
     
     if 'admin' in rol_nombre.lower():
@@ -102,11 +102,6 @@ def _sincronizar_usuario_django(request, usuario_db, contraseña_plana):
 
 
 def _login_superusuario(identificador, contraseña):
-    """
-    Si es un superusuario de Django (el de /admin) con clave correcta,
-    devuelve la respuesta de login con un token de un solo uso (60 s)
-    para entrar al panel /admin/ sin volver a escribir la clave.
-    """
     candidatos = {str(identificador or '').strip(), _limpiar_rut(identificador)}
     candidatos.discard('')
 
@@ -150,6 +145,7 @@ def admin_sso(request):
 @csrf_exempt
 @authentication_classes([])
 @permission_classes([])
+@throttle_classes([LoginIPThrottle, LoginRutThrottle])
 def login_unificado(request):
     try:
         data = request.data or {}
@@ -174,17 +170,10 @@ def login_unificado(request):
             return Response({'error': 'RUT o contraseña incorrectos.'}, status=status.HTTP_401_UNAUTHORIZED)
 
         clave_bd = str(usuario_encontrado.contraseña or '').strip()
-        es_hash_valido = check_password(contraseña_recibida, clave_bd)
-        es_texto_plano = hmac.compare_digest(clave_bd.encode('utf-8'), contraseña_recibida.encode('utf-8'))
-
-        if not (es_hash_valido or es_texto_plano):
+        if not check_password(contraseña_recibida, clave_bd):
             return Response({'error': 'RUT o contraseña incorrectos.'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        if es_texto_plano and not es_hash_valido:
-            usuario_encontrado.set_password(contraseña_recibida)
-            usuario_encontrado.save(update_fields=['contraseña'])
-
-        # Primer ingreso (o clave restablecida): NO se entrega token hasta que elija una clave nueva
+        # Primer ingreso, no se entrega token hasta que elija una clave nueva
         if usuario_encontrado.debe_cambiar_clave:
             return Response({
                 'mensaje': 'Debes cambiar tu contraseña antes de continuar.',
@@ -229,21 +218,16 @@ def login_unificado(request):
 
 
 def _clave_correcta(usuario, clave):
-    """Misma verificación del login: clave con hash o (clave antigua) en texto plano."""
+    """Verifica la clave contra el hash guardado."""
     clave_bd = str(usuario.contraseña or '').strip()
-    return check_password(clave, clave_bd) or hmac.compare_digest(clave_bd.encode('utf-8'), clave.encode('utf-8'))
-
+    return check_password(clave, clave_bd)
 
 @api_view(['POST'])
 @csrf_exempt
 @authentication_classes([])
 @permission_classes([])
+@throttle_classes([CambioClaveIPThrottle, CambioClaveRutThrottle])
 def cambiar_clave_inicial(request):
-    """
-    Cambio obligatorio de contraseña en el primer ingreso.
-    Recibe rut + contraseña_actual + contraseña_nueva. Solo funciona si la cuenta tiene
-    la marca 'debe_cambiar_clave'. No entrega token: después se inicia sesión normalmente.
-    """
     try:
         data = request.data or {}
         rut_recibido = _limpiar_rut(data.get('rut'))
@@ -288,6 +272,7 @@ def cambiar_clave_inicial(request):
 
 
 @api_view(['GET'])
+@permission_classes([solo_roles()])
 def resumen_kpis(request):
     total_horas = Report.objects.filter(activo=True).aggregate(total=Sum('horas_trabajadas'))['total'] or 0
     promedio_horas_turno = Report.objects.filter(activo=True).aggregate(promedio=Avg('horas_trabajadas'))['promedio'] or 0
@@ -308,11 +293,8 @@ def resumen_kpis(request):
 
 
 @api_view(['GET'])
+@permission_classes([solo_roles('operador')])
 def contratos_para_operador(request):
-    """
-    Contratos vigentes hoy con sus máquinas (sin tarifas).
-    El operador elige primero el contrato y luego la máquina de ese contrato.
-    """
     hoy = hoy_chile()
     contratos = (
         Contrato.objects.filter(activo=True, estado_contrato__in=ESTADOS_CONTRATO_VIGENTES)
@@ -357,6 +339,8 @@ def contratos_para_operador(request):
 class MaquinariaViewSet(BaseSoftDeleteViewSet):
     queryset = Maquinaria.objects.all().order_by('id_maquina')
     serializer_class = MaquinariaSerializer
+    roles_lectura = ('contador',)
+    roles_escritura = ()
 
 
 class OperadorViewSet(BaseSoftDeleteViewSet):
@@ -384,9 +368,21 @@ class ReportViewSet(BaseSoftDeleteViewSet):
         'id_contrato', 'id_contrato__id_cliente', 'id_operador', 'id_operador__usuario', 'id_maquina'
     ).order_by('-id_report')
     serializer_class = ReportSerializer
+    roles_lectura = ('contador', 'operador')
+    roles_escritura = ('operador',)
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        # El operador solo puede ver sus partes y registrar nuevos; no editarlos ni borrarlos.
+        if es_solo_operador(request) and request.method not in ('GET', 'HEAD', 'OPTIONS', 'POST'):
+            self.permission_denied(request, message='No tienes permiso para realizar esta acción.')
 
     def get_queryset(self):
         qs = super().get_queryset()
+        if es_solo_operador(self.request):
+            # Un operador solo ve SUS partes, aunque pida otro id_operador por la URL.
+            op = operador_de(self.request)
+            return qs.filter(id_operador=op) if op else qs.none()
         id_operador = self.request.query_params.get('id_operador')
         if id_operador and id_operador.isdigit():
             qs = qs.filter(id_operador_id=int(id_operador))
@@ -398,7 +394,14 @@ class ReportViewSet(BaseSoftDeleteViewSet):
         horometro_final = serializer.validated_data.get('horometro_final', 0.0)
 
         horas_calculadas = max(0.0, round(horometro_final - horometro_inicial, 1))
-        reporte = serializer.save(horas_trabajadas=horas_calculadas)
+        extra = {}
+        if es_solo_operador(self.request):
+            # El parte siempre queda a nombre del operador que inició sesión (no se puede registrar a nombre de otro).
+            op = operador_de(self.request)
+            if op is None:
+                raise PermissionDenied('Tu cuenta no está asociada a un operador.')
+            extra['id_operador'] = op
+        reporte = serializer.save(horas_trabajadas=horas_calculadas, **extra)
 
         maquina = reporte.id_maquina
         if horometro_final > maquina.horometro_actual:
@@ -417,26 +420,36 @@ class ReportViewSet(BaseSoftDeleteViewSet):
 class GastoViewSet(BaseSoftDeleteViewSet):
     queryset = Gasto.objects.select_related('id_maquina', 'id_contrato').order_by('-fecha')
     serializer_class = GastoSerializer
+    roles_lectura = ('contador',)
+    roles_escritura = ()
 
 
 class ClienteViewSet(BaseSoftDeleteViewSet):
     queryset = Cliente.objects.all().order_by('razon_social')
     serializer_class = ClienteSerializer
+    roles_lectura = ('contador',)
+    roles_escritura = ()
 
 
 class ContratoViewSet(BaseSoftDeleteViewSet):
     queryset = Contrato.objects.all().order_by('-id_contrato')
     serializer_class = ContratoSerializer
+    roles_lectura = ('contador',)
+    roles_escritura = ('contador',)
 
 
 class HESViewSet(BaseSoftDeleteViewSet):
     queryset = HES.objects.all().order_by('-id_hes')
     serializer_class = HESSerializer
+    roles_lectura = ('contador',)
+    roles_escritura = ('contador',)
 
 
 class FacturaViewSet(BaseSoftDeleteViewSet):
     queryset = Factura.objects.all().order_by('-folio')
     serializer_class = FacturaSerializer
+    roles_lectura = ('contador',)
+    roles_escritura = ('contador',)
 
 
 class DocMaquinariaViewSet(BaseSoftDeleteViewSet):
@@ -447,11 +460,16 @@ class DocMaquinariaViewSet(BaseSoftDeleteViewSet):
 class DocEmpresaViewSet(BaseSoftDeleteViewSet):
     queryset = Doc_empresa.objects.all().order_by('-fecha_emision')
     serializer_class = DocEmpresaSerializer
+    roles_lectura = ('contador',)
+    roles_escritura = ('contador',)
 
 
 class ContratoMaquinariaViewSet(viewsets.ModelViewSet):
     queryset = ContratoMaquinaria.objects.all()
     serializer_class = ContratoMaquinariaSerializer
+    permission_classes = [PermisoPorRol]
+    roles_lectura = ('contador',)
+    roles_escritura = ('contador',)
 
 
 def login_evaluacion(request):
@@ -484,12 +502,12 @@ def registro_evaluacion(request):
     return render(request, 'panel/registro.html', {'form': form})
 
 
-# Vista basada en clases (CBV) protegida con LoginRequiredMixin
+
 class MaquinariaListView(LoginRequiredMixin, ListView):
     model = Maquinaria
     template_name = 'panel/maquinaria_list.html'
     context_object_name = 'maquinarias'
-    login_url = 'login_evaluacion'  # Redirige al login si no se ha iniciado sesión
+    login_url = 'login_evaluacion'  
 
     def get_queryset(self):
         return Maquinaria.objects.filter(activo=True)
@@ -505,7 +523,7 @@ def generar_url_presignada(request):
     if not nombre_archivo:
         return Response({'error': 'Se requiere el nombre del archivo.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Limpiar y hacer único el nombre del archivo para evitar colisiones
+
     extension = nombre_archivo.split('.')[-1]
     nombre_unico = f"uploads/{uuid.uuid4()}.{extension}"
 
@@ -517,7 +535,6 @@ def generar_url_presignada(request):
     )
 
     try:
-        # Generar la URL con validez de 300 segundos (5 minutos)
         presigned_url = s3_client.generate_presigned_url(
             'put_object',
             Params={
@@ -527,8 +544,6 @@ def generar_url_presignada(request):
             },
             ExpiresIn=300
         )
-        
-        # URL final pública o interna con la que se accederá al archivo después de subirlo
         url_archivo_final = f"https://{settings.AWS_STORAGE_BUCKET_NAME}.s3.{settings.AWS_S3_REGION_NAME}.amazonaws.com/{nombre_unico}"
 
         return Response({
@@ -551,13 +566,11 @@ def generar_url_lectura(request):
     if not url_archivo:
         return Response({'error': 'URL no proporcionada'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Solo procesamos si es una URL de Amazon S3
+
     if 'amazonaws.com' not in url_archivo:
         return Response({'url_lectura': url_archivo}, status=status.HTTP_200_OK)
 
     try:
-        # Extraemos el "Key" (la ruta interna) de la URL
-        # Ej: de "https://bucket.s3.../uploads/archivo.pdf" extrae "uploads/archivo.pdf"
         parsed_url = urllib.parse.urlparse(url_archivo)
         key = parsed_url.path.lstrip('/') 
         
@@ -568,7 +581,6 @@ def generar_url_lectura(request):
             region_name=settings.AWS_S3_REGION_NAME
         )
         
-        # Generar URL de lectura (GET) por 5 minutos (300 segundos)
         presigned_url = s3_client.generate_presigned_url(
             'get_object',
             Params={

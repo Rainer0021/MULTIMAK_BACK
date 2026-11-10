@@ -285,7 +285,6 @@ class MaquinariaSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         patente = validated_data.get('patente')
-        # Si la patente existía pero estaba desactivada (activo=False), la reactivamos en lugar de rebotar
         maquina_oculta = Maquinaria.objects.filter(patente__iexact=patente, activo=False).first()
         if maquina_oculta:
             for attr, val in validated_data.items():
@@ -374,7 +373,7 @@ class OperadorSerializer(serializers.ModelSerializer):
         elif datos['password'] and not clave_es_segura(datos['password']):
             errores['password'] = MENSAJE_CLAVE_SEGURA
 
-        # Datos de la licencia: obligatorios al registrar; al editar no se pueden dejar en blanco
+
         campos_licencia = (
             ('TipoLicencia', 'Selecciona al menos un tipo de licencia.'),
             ('fecha_vencimiento_licencia', 'Ingresa la fecha de vencimiento de la licencia.'),
@@ -403,7 +402,7 @@ class OperadorSerializer(serializers.ModelSerializer):
         usuario.apellido = datos['apellido']
         usuario.activo = True
         usuario.set_password(datos['password'])
-        usuario.debe_cambiar_clave = True  # la clave la define el administrador: debe cambiarla al ingresar
+        usuario.debe_cambiar_clave = True  
         usuario.save()
         
         validated_data['url_licencia'] = ''
@@ -434,7 +433,7 @@ class OperadorSerializer(serializers.ModelSerializer):
                 usuario.rut = formatear_rut(datos['rut'])
             if datos['password']:
                 usuario.set_password(datos['password'])
-                usuario.debe_cambiar_clave = True  # clave restablecida por el administrador
+                usuario.debe_cambiar_clave = True  
             usuario.save()
         return super().update(instance, validated_data)
 
@@ -588,7 +587,6 @@ class GastoSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        # Fuerza activa la casilla en la base de datos
         validated_data['activo'] = True
 
         if not validated_data.get('id_usuario'):
