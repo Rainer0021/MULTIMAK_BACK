@@ -132,6 +132,7 @@ class HES(models.Model):
     total_horas_aprobadas = models.IntegerField()
     estado = models.CharField(max_length=50, default='PENDIENTE')
     activo = models.BooleanField(default=True)
+    url_archivo = models.URLField(max_length=500, blank=True, null=True)
 
     class Meta:
         db_table = 'HES'
