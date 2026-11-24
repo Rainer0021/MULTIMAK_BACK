@@ -366,7 +366,7 @@ class ReportViewSet(BaseSoftDeleteViewSet):
     ).order_by('-id_report')
     serializer_class = ReportSerializer
     roles_lectura = ('contador', 'operador')
-    roles_escritura = ('operador')
+    roles_escritura = ('operador',)
 
     def check_permissions(self, request):
         super().check_permissions(request)
