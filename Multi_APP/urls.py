@@ -1,4 +1,5 @@
 from django.urls import path, include
+from rest_framework_simplejwt.views import TokenRefreshView
 from rest_framework.routers import DefaultRouter
 from .views import (
     generar_url_lectura, login_unificado, resumen_kpis, MaquinariaViewSet, OperadorViewSet,
@@ -44,4 +45,5 @@ urlpatterns = [
     path('panel/maquinarias/', MaquinariaListView.as_view(), name='panel_maquinarias'),
     path('generar-url-s3/', generar_url_presignada, name='generar_url_s3'),
     path('generar-url-lectura/', generar_url_lectura, name='generar_url_lectura'),
+    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ]
