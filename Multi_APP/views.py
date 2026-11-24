@@ -366,7 +366,7 @@ class ReportViewSet(BaseSoftDeleteViewSet):
     ).order_by('-id_report')
     serializer_class = ReportSerializer
     roles_lectura = ('contador', 'operador')
-    roles_escritura = ('operador',)
+    roles_escritura = ('operador')
 
     def check_permissions(self, request):
         super().check_permissions(request)
@@ -439,7 +439,13 @@ class HESViewSet(BaseSoftDeleteViewSet):
     serializer_class = HESSerializer
     roles_lectura = ('contador',)
     roles_escritura = ('contador',)
-
+    @transaction.atomic
+    def perform_create(self, serializer):
+        hes = serializer.save()
+        Report.objects.filter(
+            id_contrato=hes.id_contrato,
+            activo=True,
+        ).update(activo=False)
 
 class FacturaViewSet(BaseSoftDeleteViewSet):
     queryset = Factura.objects.all().order_by('-folio')
