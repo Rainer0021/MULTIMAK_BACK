@@ -127,7 +127,7 @@ CORS_ALLOW_CREDENTIALS = True
 # Dirección de la página React 
 FRONTEND_URL = os.environ.get(
     'FRONTEND_URL',
-    'http://localhost:5173' if DEBUG else 'https://multimak.vercel.app',
+    'http://localhost:5173' if DEBUG else 'https://multimak-360.xyz',
 )
 
 REST_FRAMEWORK = {
